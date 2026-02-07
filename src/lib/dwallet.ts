@@ -123,6 +123,40 @@ export interface CreateDWalletResult {
  * 7. Transfer dWallet cap to sender
  * 8. Sign & execute via connected wallet
  */
+export interface DWalletState {
+  objectId: string;
+  state: string;
+}
+
+/**
+ * Fetches the current state of a dWallet from the Ika network.
+ */
+export async function getDWalletState(
+  dWalletObjectId: string,
+): Promise<DWalletState> {
+  const rpcClient = new SuiJsonRpcClient({
+    url: process.env.NEXT_PUBLIC_SHINAMI_RPC_URL!,
+    network: "testnet",
+  });
+
+  const ikaClient = new IkaClient({
+    suiClient: rpcClient as any,
+    config: getNetworkConfig("testnet"),
+  });
+  await retryWithBackoff(() => ikaClient.initialize());
+
+  const dWallet = await retryWithBackoff(() =>
+    ikaClient.getDWallet(dWalletObjectId),
+  );
+
+  const state = (dWallet as any)?.state?.$kind || "unknown";
+
+  return {
+    objectId: dWalletObjectId,
+    state,
+  };
+}
+
 export async function createDWallet({
   password,
   chain,
@@ -210,6 +244,11 @@ export async function createDWallet({
     prepareDKGAsync(ikaClient, curve, userShareKeys, sessionId, senderAddress),
   );
 
+  // Extract userPublicOutput for on-chain storage
+  const userPublicOutput = Array.from(
+    new Uint8Array((dkgRequestInput as any).userPublicOutput),
+  );
+
   // 7. Request DKG
   status("Requesting dWallet key generation...");
   const [dwalletCap] = await ikaTx.requestDWalletDKG({
@@ -220,9 +259,19 @@ export async function createDWallet({
     ikaCoin: userIkaCoin,
     suiCoin: userSuiCoin,
   });
+
+  // Register dWallet in on-chain registry with session_id and user_public_output
+  const sessionIdU64Array = Array.from(sessionId).map((b) => BigInt(b));
   tx.moveCall({
     target: `${process.env.NEXT_PUBLIC_NEXUS_CONTRACT_ADDRESS}::nexus_wallet_management::register_dwallet`,
-    arguments: [tx.object(process.env.NEXT_PUBLIC_NEXUS_REGISTRY_ADDRESS!), tx.pure.string("EVM"), tx.pure.string("EVM"), dwalletCap],
+    arguments: [
+      tx.object(process.env.NEXT_PUBLIC_NEXUS_REGISTRY_ADDRESS!),
+      tx.pure.string("EVM"),
+      tx.pure.string("EVM"),
+      dwalletCap,
+      tx.pure.vector("u64", sessionIdU64Array),
+      tx.pure.vector("u8", userPublicOutput),
+    ],
   });
   // 8. Transfer cap to sender
   tx.transferObjects(
@@ -247,4 +296,159 @@ export async function createDWallet({
     transactionDigest: digest,
     sessionId,
   };
+}
+
+/* ================================================================
+   ACTIVATE dWALLET
+   ================================================================ */
+
+export interface ActivateDWalletParams {
+  password: string;
+  chain: "evm" | "solana";
+  dWalletObjectId: string;
+  /** The user's DKG public output, read from the on-chain WalletRegistry */
+  userPublicOutput: Uint8Array;
+  senderAddress: string;
+  signAndExecuteTransaction: (args: {
+    transaction: Transaction;
+  }) => Promise<unknown>;
+  onStatus?: (message: string) => void;
+}
+
+/**
+ * Activates a dWallet that is in AwaitingKeyHolderSignature state.
+ *
+ * Flow:
+ * 1. Derive encryption keys from password
+ * 2. Initialize IkaClient
+ * 3. Verify dWallet is in AwaitingKeyHolderSignature state
+ * 4. Fetch encrypted user secret key shares from the dWallet
+ * 5. Accept the encrypted user share via IkaTransaction
+ * 6. Sign & execute via connected wallet
+ * 7. Wait for dWallet to become Active
+ */
+export async function activateDWallet({
+  password,
+  chain,
+  dWalletObjectId,
+  userPublicOutput,
+  senderAddress,
+  signAndExecuteTransaction,
+  onStatus,
+}: ActivateDWalletParams): Promise<{ transactionDigest: string }> {
+  const status = onStatus ?? (() => {});
+
+  const rpcClient = new SuiJsonRpcClient({
+    url: process.env.NEXT_PUBLIC_SHINAMI_RPC_URL!,
+    network: "testnet",
+  });
+
+  const curve = chainToCurve(chain);
+
+  // 1. Derive keys from password
+  status("Deriving encryption keys...");
+  const rootSeedKey = await deriveSeedFromPassword(password);
+  const userShareKeys = await UserShareEncryptionKeys.fromRootSeedKey(
+    rootSeedKey,
+    curve,
+  );
+
+  // 2. Initialize IKA client
+  status("Connecting to Ika network...");
+  const ikaClient = new IkaClient({
+    suiClient: rpcClient as any,
+    config: getNetworkConfig("testnet"),
+  });
+  await retryWithBackoff(() => ikaClient.initialize());
+
+  // 3. Fetch dWallet and check state
+  status("Checking dWallet state...");
+  const dWalletCurrent = await retryWithBackoff(() =>
+    ikaClient.getDWallet(dWalletObjectId),
+  );
+  const currentState = (dWalletCurrent as any)?.state?.$kind || "unknown";
+
+  if (currentState === "Active") {
+    status("dWallet is already active!");
+    return { transactionDigest: "already-active" };
+  }
+
+  if (currentState !== "AwaitingKeyHolderSignature") {
+    status(
+      `Waiting for AwaitingKeyHolderSignature state (current: ${currentState})...`,
+    );
+    await ikaClient.getDWalletInParticularState(
+      dWalletObjectId,
+      "AwaitingKeyHolderSignature",
+      { timeout: 300000, interval: 5000 },
+    );
+  }
+
+  // 4. Re-fetch dWallet in correct state
+  const dWallet = await retryWithBackoff(() =>
+    ikaClient.getDWallet(dWalletObjectId),
+  );
+
+  // 5. Build activation transaction
+  status("Building activation transaction...");
+  const tx = new Transaction();
+  const ikaTx = new IkaTransaction({
+    ikaClient,
+    transaction: tx as any,
+    userShareEncryptionKeys: userShareKeys,
+  });
+
+  // 6. Fetch encrypted user secret key shares
+  const encryptedUserSecretKeySharesId = (dWallet as any)
+    .encrypted_user_secret_key_shares?.id?.id;
+  if (!encryptedUserSecretKeySharesId) {
+    throw new Error(
+      "encrypted_user_secret_key_shares table not found on dWallet",
+    );
+  }
+
+  const dynamicFields = await rpcClient.getDynamicFields({
+    parentId: encryptedUserSecretKeySharesId,
+  });
+  if (!dynamicFields.data || dynamicFields.data.length === 0) {
+    throw new Error(
+      "No encrypted user secret key shares found. The network may not have completed DKG yet.",
+    );
+  }
+  const encryptedUserSecretKeyShareId = dynamicFields.data[0]?.objectId;
+  if (!encryptedUserSecretKeyShareId) {
+    throw new Error("encryptedUserSecretKeyShareId not found");
+  }
+
+  // 7. Accept encrypted user share
+  status("Accepting encrypted user share...");
+  await ikaTx.acceptEncryptedUserShare({
+    dWallet: dWallet as any,
+    encryptedUserSecretKeyShareId,
+    userPublicOutput,
+  });
+
+  tx.setSender(senderAddress);
+
+  // 8. Sign and execute via wallet
+  status("Waiting for wallet signature...");
+  const result = await signAndExecuteTransaction({ transaction: tx });
+
+  const txResult = result as any;
+  const digest =
+    txResult?.digest ?? txResult?.Transaction?.digest ?? "unknown";
+
+  // 9. Wait for Active state
+  status("Waiting for dWallet to become active...");
+  try {
+    await ikaClient.getDWalletInParticularState(dWalletObjectId, "Active", {
+      timeout: 120000,
+      interval: 3000,
+    });
+    status("dWallet activated successfully!");
+  } catch {
+    status("Activation submitted. dWallet may still be processing.");
+  }
+
+  return { transactionDigest: digest };
 }

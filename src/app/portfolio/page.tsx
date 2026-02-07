@@ -6,7 +6,6 @@ import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Settings,
-  Plus,
   ArrowRightLeft,
   ArrowUpRight,
   ArrowDownLeft,

@@ -14,6 +14,10 @@ const EWalletNotFound: u64 = 1;
 public struct WalletEntry has store, drop, copy {
     /// The on-chain address of the dWallet object (derived from DWalletCap.dwallet_id)
     dwallet_addr: address,
+    /// The session ID used for the DKG
+    session_id: vector<u64>,
+    /// The user's public output from the DKG
+    user_public_output: vector<u8>,
     /// Human-readable label, e.g. "Main EVM"
     label: String,
     /// Target chain, e.g. "evm" or "solana"
@@ -47,11 +51,15 @@ public fun register_dwallet(
     label: String,
     chain: String,
     dwallet_cap: &DWalletCap,
+    session_id: vector<u64>,
+    user_public_output: vector<u8>,
     ctx: &TxContext,
 ) {
     let sender = tx_context::sender(ctx);
     let entry = WalletEntry {
         dwallet_addr: dwallet_cap.dwallet_id().to_address(),
+        session_id,
+        user_public_output,
         label,
         chain,
     };

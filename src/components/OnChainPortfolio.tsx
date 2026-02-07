@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-kit-react";
 import { Wallet, Plus } from "lucide-react";
 import CreateDWalletModal from "./CreateDWalletModal";
+import DWalletStateModal from "./DWalletStateModal";
 import ToastContainer, { type ToastItem } from "./Toast";
-import { createDWallet } from "@/lib/dwallet";
+import { createDWallet, activateDWallet } from "@/lib/dwallet";
 
 const DWALLET_TYPE =
   "0xf02f5960c94fce1899a3795b5d11fd076bc70a8d0e20a2b19923d990ed490730::coordinator_inner::DWalletCap";
@@ -14,6 +15,8 @@ const DWALLET_TYPE =
 
 export interface RegistryWalletEntry {
   dwallet_addr: string;
+  session_id: number[];
+  user_public_output: number[];
   label: string;
   chain: string;
 }
@@ -71,6 +74,8 @@ export function useRegistryWallets(address: string | undefined) {
         setWallets(
           entries.map((e: any) => ({
             dwallet_addr: e.fields.dwallet_addr,
+            session_id: e.fields.session_id ?? [],
+            user_public_output: e.fields.user_public_output ?? [],
             label: e.fields.label,
             chain: e.fields.chain,
           })),
@@ -172,6 +177,12 @@ export function ConnectedWallets() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [stateModalWallet, setStateModalWallet] = useState<{
+    addr: string;
+    label: string;
+    chain: string;
+    user_public_output: number[];
+  } | null>(null);
 
   function addToast(message: string, type: ToastItem["type"]) {
     const id = `toast-${++toastCounter}`;
@@ -237,19 +248,20 @@ export function ConnectedWallets() {
   return (
     <div className="flex items-center gap-2">
       {evmWallets.map((w) => (
-        <div
+        <button
           key={w.dwallet_addr}
-          className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg"
+          onClick={() => setStateModalWallet({ addr: w.dwallet_addr, label: w.label, chain: w.chain, user_public_output: w.user_public_output })}
+          className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg hover:bg-zinc-800 hover:border-zinc-600 transition-colors cursor-pointer"
         >
           <Wallet size={12} className="text-zinc-500" />
-          <div>
+          <div className="text-left">
             <div className="text-[11px] text-zinc-300 font-medium">{w.label}</div>
             <div className="text-[10px] font-mono text-zinc-600">
               {truncateAddress(w.dwallet_addr)}
             </div>
           </div>
           <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 ml-1" />
-        </div>
+        </button>
       ))}
       <button
         onClick={() => setModalOpen(true)}
@@ -271,6 +283,29 @@ export function ConnectedWallets() {
       />
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      <DWalletStateModal
+        open={!!stateModalWallet}
+        onClose={() => setStateModalWallet(null)}
+        dWalletAddr={stateModalWallet?.addr ?? ""}
+        label={stateModalWallet?.label ?? ""}
+        onActivate={async (password: string) => {
+          if (!account || !stateModalWallet) return;
+
+          const userPublicOutput = new Uint8Array(stateModalWallet.user_public_output);
+          const chain = stateModalWallet.chain.toLowerCase() === "evm" ? "evm" as const : "solana" as const;
+
+          await activateDWallet({
+            password,
+            chain,
+            dWalletObjectId: stateModalWallet.addr,
+            userPublicOutput,
+            senderAddress: account.address,
+            signAndExecuteTransaction: (args) =>
+              dAppKit.signAndExecuteTransaction({ transaction: args.transaction }),
+          });
+        }}
+      />
     </div>
   );
 }
