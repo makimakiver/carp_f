@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 
 export default function CTA() {
@@ -33,17 +34,19 @@ export default function CTA() {
             finance
           </p>
 
-          <motion.button
-            whileHover={{
-              scale: 1.02,
-              boxShadow: "0 0 40px rgba(0, 240, 255, 0.5)",
-            }}
-            whileTap={{ scale: 0.98 }}
-            transition={{ duration: 0.2 }}
-            className="bg-[#00F0FF] text-black px-12 py-5 text-lg md:text-xl font-bold tracking-wide hover:bg-[#00D9FF] transition-colors rounded-sm"
-          >
-            Launch App
-          </motion.button>
+          <Link href="/trade">
+            <motion.span
+              whileHover={{
+                scale: 1.02,
+                boxShadow: "0 0 40px rgba(0, 240, 255, 0.5)",
+              }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              className="inline-block bg-[#00F0FF] text-black px-12 py-5 text-lg md:text-xl font-bold tracking-wide hover:bg-[#00D9FF] transition-colors rounded-sm"
+            >
+              Launch App
+            </motion.span>
+          </Link>
         </motion.div>
       </div>
     </section>

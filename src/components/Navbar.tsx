@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { navLinks } from "@/lib/data";
 
@@ -40,9 +41,12 @@ export default function Navbar() {
           <button className="border-2 border-[#00F0FF] bg-transparent hover:bg-[#00F0FF]/10 px-6 py-2.5 text-[#00F0FF] font-semibold tracking-wide text-sm hover-glow transition-all">
             Connect Wallet
           </button>
-          <button className="bg-[#00F0FF] text-black px-6 py-2.5 font-bold tracking-wide text-sm hover:bg-[#00D9FF] transition-all hover:shadow-[0_0_30px_rgba(0,240,255,0.4)]">
+          <Link
+            href="/trade"
+            className="bg-[#00F0FF] text-black px-6 py-2.5 font-bold tracking-wide text-sm hover:bg-[#00D9FF] transition-all hover:shadow-[0_0_30px_rgba(0,240,255,0.4)] inline-block"
+          >
             Launch App
-          </button>
+          </Link>
         </div>
 
         {/* Mobile Menu Toggle */}
@@ -95,9 +99,13 @@ export default function Navbar() {
                 <button className="border-2 border-[#00F0FF] bg-transparent px-6 py-2.5 text-[#00F0FF] font-semibold tracking-wide text-sm">
                   Connect Wallet
                 </button>
-                <button className="bg-[#00F0FF] text-black px-6 py-2.5 font-bold tracking-wide text-sm">
+                <Link
+                  href="/trade"
+                  className="bg-[#00F0FF] text-black px-6 py-2.5 font-bold tracking-wide text-sm text-center"
+                  onClick={() => setMobileOpen(false)}
+                >
                   Launch App
-                </button>
+                </Link>
               </div>
             </div>
           </motion.div>

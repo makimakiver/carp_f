@@ -32,6 +32,7 @@ const config: Config = {
       animation: {
         marquee: "marquee 30s linear infinite",
         "glow-pulse": "glow-pulse 2s ease-in-out infinite",
+        "flow-pulse": "flow-pulse 2s ease-in-out infinite",
       },
       keyframes: {
         marquee: {
@@ -47,6 +48,10 @@ const config: Config = {
             boxShadow: "0 0 25px rgba(0, 240, 255, 0.5)",
             borderColor: "rgba(0, 240, 255, 0.5)",
           },
+        },
+        "flow-pulse": {
+          "0%, 100%": { opacity: "0.4", transform: "scaleY(1)" },
+          "50%": { opacity: "1", transform: "scaleY(1.1)" },
         },
       },
       boxShadow: {

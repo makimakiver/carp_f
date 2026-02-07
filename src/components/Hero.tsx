@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "framer-motion";
 
 export default function Hero() {
@@ -56,17 +57,19 @@ export default function Hero() {
             transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
             className="flex flex-col sm:flex-row gap-4 justify-center"
           >
-            <motion.button
-              whileHover={{
-                scale: 1.02,
-                boxShadow: "0 0 30px rgba(0, 240, 255, 0.4)",
-              }}
-              whileTap={{ scale: 0.98 }}
-              transition={{ duration: 0.2 }}
-              className="bg-[#00F0FF] text-black px-8 py-4 text-lg font-bold tracking-wide hover:bg-[#00D9FF] transition-colors"
-            >
-              Start Trading
-            </motion.button>
+            <Link href="/trade">
+              <motion.span
+                whileHover={{
+                  scale: 1.02,
+                  boxShadow: "0 0 30px rgba(0, 240, 255, 0.4)",
+                }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+                className="inline-block bg-[#00F0FF] text-black px-8 py-4 text-lg font-bold tracking-wide hover:bg-[#00D9FF] transition-colors"
+              >
+                Start Trading
+              </motion.span>
+            </Link>
             <motion.button
               whileHover={{
                 scale: 1.02,

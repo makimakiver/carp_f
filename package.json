@@ -10,16 +10,18 @@
   },
   "dependencies": {
     "framer-motion": "^12.33.0",
-    "next": "14.2.35",
+    "lucide-react": "^0.563.0",
+    "next": "^16.1.6",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "react-resizable-panels": "^4.6.2"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "eslint": "^8",
-    "eslint-config-next": "14.2.35",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.6",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
