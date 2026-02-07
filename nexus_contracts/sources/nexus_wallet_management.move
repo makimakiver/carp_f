@@ -22,6 +22,8 @@ public struct WalletEntry has store, drop, copy {
     label: String,
     /// Target chain, e.g. "evm" or "solana"
     chain: String,
+
+    presign
 }
 
 /// Updated WalletRegistry to use UserWallets

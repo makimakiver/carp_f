@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, Wallet, CircleDot, Lock, Zap } from "lucide-react";
+import { X, Loader2, Wallet, CircleDot, Lock, Zap, FileSignature } from "lucide-react";
 import { getDWalletState, type DWalletState } from "@/lib/dwallet";
 
 interface DWalletStateModalProps {
@@ -11,6 +11,7 @@ interface DWalletStateModalProps {
   dWalletAddr: string;
   label: string;
   onActivate?: (password: string) => Promise<void>;
+  onCreatePresign?: (password: string) => Promise<void>;
 }
 
 const STATE_CONFIG: Record<string, { color: string; bg: string; label: string }> = {
@@ -31,6 +32,7 @@ export default function DWalletStateModal({
   dWalletAddr,
   label,
   onActivate,
+  onCreatePresign,
 }: DWalletStateModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -41,12 +43,21 @@ export default function DWalletStateModal({
   const [activateStatus, setActivateStatus] = useState("");
   const [activateError, setActivateError] = useState("");
 
+  const [presignPassword, setPresignPassword] = useState("");
+  const [creatingPresign, setCreatingPresign] = useState(false);
+  const [presignStatus, setPresignStatus] = useState("");
+  const [presignError, setPresignError] = useState("");
+
   useEffect(() => {
     if (!open) {
       setPassword("");
       setActivating(false);
       setActivateStatus("");
       setActivateError("");
+      setPresignPassword("");
+      setCreatingPresign(false);
+      setPresignStatus("");
+      setPresignError("");
     }
   }, [open]);
 
@@ -74,6 +85,23 @@ export default function DWalletStateModal({
 
   const stateConfig = dwalletState ? getStateConfig(dwalletState.state) : null;
   const isAwaitingActivation = dwalletState?.state === "AwaitingKeyHolderSignature";
+  const isActive = dwalletState?.state === "Active";
+
+  async function handleCreatePresign() {
+    if (!presignPassword || !onCreatePresign) return;
+    setCreatingPresign(true);
+    setPresignError("");
+    setPresignStatus("Starting presign creation...");
+
+    try {
+      await onCreatePresign(presignPassword);
+      setPresignStatus("Presign created!");
+    } catch (err: any) {
+      setPresignError(err?.message || "Presign creation failed");
+    } finally {
+      setCreatingPresign(false);
+    }
+  }
 
   async function handleActivate() {
     if (!password || !onActivate) return;
@@ -109,7 +137,7 @@ export default function DWalletStateModal({
         >
           <div
             className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={activating ? undefined : onClose}
+            onClick={activating || creatingPresign ? undefined : onClose}
           />
 
           <motion.div
@@ -135,7 +163,7 @@ export default function DWalletStateModal({
               </div>
               <button
                 onClick={onClose}
-                disabled={activating}
+                disabled={activating || creatingPresign}
                 className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-40"
               >
                 <X size={18} />
@@ -222,6 +250,61 @@ export default function DWalletStateModal({
                           <>
                             <Zap size={16} />
                             Activate dWallet
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {isActive && onCreatePresign && (
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center gap-2">
+                        <FileSignature size={14} className="text-emerald-400" />
+                        <span className="text-sm text-zinc-300">Create a Presign</span>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-zinc-500 uppercase tracking-wide mb-1.5">
+                          <Lock size={10} className="inline mr-1" />
+                          dWallet Password
+                        </label>
+                        <input
+                          type="password"
+                          value={presignPassword}
+                          onChange={(e) => { setPresignPassword(e.target.value); setPresignError(""); }}
+                          disabled={creatingPresign}
+                          className="w-full px-3 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-colors disabled:opacity-50"
+                          placeholder="Enter password used during creation"
+                        />
+                      </div>
+
+                      {presignStatus && creatingPresign && (
+                        <div className="flex items-center gap-2 px-3 py-2 bg-zinc-800/50 rounded-lg">
+                          <Loader2 size={14} className="animate-spin text-emerald-400" />
+                          <span className="text-[12px] text-zinc-400">{presignStatus}</span>
+                        </div>
+                      )}
+
+                      {presignError && (
+                        <div className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                          <p className="text-[12px] text-red-400">{presignError}</p>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleCreatePresign}
+                        disabled={!presignPassword || creatingPresign}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        {creatingPresign ? (
+                          <>
+                            <Loader2 size={16} className="animate-spin" />
+                            Creating Presign...
+                          </>
+                        ) : (
+                          <>
+                            <FileSignature size={16} />
+                            Create Presign
                           </>
                         )}
                       </button>

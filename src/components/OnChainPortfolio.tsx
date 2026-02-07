@@ -6,7 +6,7 @@ import { Wallet, Plus } from "lucide-react";
 import CreateDWalletModal from "./CreateDWalletModal";
 import DWalletStateModal from "./DWalletStateModal";
 import ToastContainer, { type ToastItem } from "./Toast";
-import { createDWallet, activateDWallet } from "@/lib/dwallet";
+import { createDWallet, activateDWallet, createPresign } from "@/lib/dwallet";
 
 const DWALLET_TYPE =
   "0xf02f5960c94fce1899a3795b5d11fd076bc70a8d0e20a2b19923d990ed490730::coordinator_inner::DWalletCap";
@@ -300,6 +300,19 @@ export function ConnectedWallets() {
             chain,
             dWalletObjectId: stateModalWallet.addr,
             userPublicOutput,
+            senderAddress: account.address,
+            signAndExecuteTransaction: (args) =>
+              dAppKit.signAndExecuteTransaction({ transaction: args.transaction }),
+          });
+        }}
+        onCreatePresign={async (password: string) => {
+          if (!account || !stateModalWallet) return;
+
+          const chain = stateModalWallet.chain.toLowerCase() === "evm" ? "evm" as const : "solana" as const;
+
+          await createPresign({
+            password,
+            chain,
             senderAddress: account.address,
             signAndExecuteTransaction: (args) =>
               dAppKit.signAndExecuteTransaction({ transaction: args.transaction }),

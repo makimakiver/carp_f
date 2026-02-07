@@ -5,7 +5,10 @@ import {
   UserShareEncryptionKeys,
   createRandomSessionIdentifier,
   Curve,
+  SignatureAlgorithm,
   prepareDKGAsync,
+  SessionsManagerModule,
+  CoordinatorInnerModule,
 } from "@ika.xyz/sdk";
 import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
 import { Transaction } from "@mysten/sui/transactions";
@@ -451,4 +454,171 @@ export async function activateDWallet({
   }
 
   return { transactionDigest: digest };
+}
+
+/* ================================================================
+   CREATE PRESIGN
+   ================================================================ */
+
+export interface CreatePresignParams {
+  password: string;
+  chain: "evm" | "solana";
+  senderAddress: string;
+  signAndExecuteTransaction: (args: {
+    transaction: Transaction;
+  }) => Promise<unknown>;
+  onStatus?: (message: string) => void;
+}
+
+export interface CreatePresignResult {
+  transactionDigest: string;
+  presignId: string;
+}
+
+/**
+ * Creates a presign (pre-computed signature share) via the Ika network's MPC protocol.
+ *
+ * Flow:
+ * 1. Derive encryption keys from password
+ * 2. Initialize IkaClient
+ * 3. Build transaction with IkaTransaction
+ * 4. Fetch IKA coins for fees
+ * 5. Split a fee coin from gas for the presign request
+ * 6. Call requestGlobalPresign
+ * 7. Transfer unverified presign cap to sender
+ * 8. Sign & execute via wallet
+ * 9. Extract presign ID from PresignRequestEvent
+ * 10. Wait for presign completion on the network
+ */
+export async function createPresign({
+  password,
+  chain,
+  senderAddress,
+  signAndExecuteTransaction,
+  onStatus,
+}: CreatePresignParams): Promise<CreatePresignResult> {
+  const status = onStatus ?? (() => {});
+
+  const rpcClient = new SuiJsonRpcClient({
+    url: process.env.NEXT_PUBLIC_SHINAMI_RPC_URL!,
+    network: "testnet",
+  });
+
+  const curve = chainToCurve(chain);
+
+  // 1. Derive keys from password
+  status("Deriving encryption keys...");
+  const rootSeedKey = await deriveSeedFromPassword(password);
+  const userShareKeys = await UserShareEncryptionKeys.fromRootSeedKey(
+    rootSeedKey,
+    curve,
+  );
+
+  // 2. Initialize IKA client
+  status("Connecting to Ika network...");
+  const ikaClient = new IkaClient({
+    suiClient: rpcClient as any,
+    config: getNetworkConfig("testnet"),
+  });
+  await retryWithBackoff(() => ikaClient.initialize());
+
+  // 3. Build transaction
+  status("Building presign transaction...");
+  const tx = new Transaction();
+  const ikaTx = new IkaTransaction({
+    ikaClient,
+    transaction: tx as any,
+    userShareEncryptionKeys: userShareKeys,
+  });
+
+  // 4. Fetch coins
+  status("Checking wallet balances...");
+  const rawUserCoins = await retryWithBackoff(() =>
+    rpcClient.getAllCoins({ owner: senderAddress }),
+  );
+  const rawUserIkaCoins = rawUserCoins.data.filter(
+    (coin: any) => coin.coinType === TESTNET_IKA_COIN_TYPE,
+  );
+
+  if (!rawUserIkaCoins[0]) {
+    throw new Error(
+      "No IKA coins found. You need IKA tokens to create a presign.",
+    );
+  }
+
+  const userIkaCoin = tx.object(rawUserIkaCoins[0].coinObjectId);
+
+  // 5. Fetch network encryption key
+  status("Fetching network encryption key...");
+  const dWalletEncryptionKey = await retryWithBackoff(() =>
+    ikaClient.getLatestNetworkEncryptionKey(),
+  );
+
+  // 6. Split fee coin from gas and request global presign
+  const feeCoin = tx.splitCoins(tx.gas, [1_000_000]);
+
+  status("Requesting presign...");
+  const unverifiedPresignCap = ikaTx.requestGlobalPresign({
+    curve,
+    signatureAlgorithm: chain === "evm"
+      ? SignatureAlgorithm.ECDSASecp256k1
+      : SignatureAlgorithm.EdDSA,
+    ikaCoin: userIkaCoin,
+    suiCoin: feeCoin,
+    dwalletNetworkEncryptionKeyId: dWalletEncryptionKey.id,
+  });
+
+  tx.mergeCoins(tx.gas, [feeCoin]);
+
+  // 7. Transfer unverified presign cap to sender
+  tx.transferObjects(
+    [unverifiedPresignCap as TransactionObjectArgument],
+    senderAddress,
+  );
+  tx.setSender(senderAddress);
+
+  // 8. Sign and execute via wallet
+  status("Waiting for wallet signature...");
+  const result = await signAndExecuteTransaction({ transaction: tx });
+
+  const txResult = result as any;
+  const digest =
+    txResult?.digest ?? txResult?.Transaction?.digest ?? "unknown";
+
+  // 9. Wait for transaction confirmation and extract presign ID
+  status("Waiting for transaction confirmation...");
+  const waitResult = await retryWithBackoff(() =>
+    rpcClient.waitForTransaction({
+      digest,
+      options: { showEvents: true },
+    }),
+  );
+
+  const presignEvent = (waitResult as any).events?.find(
+    (event: any) => event.type.includes("PresignRequestEvent"),
+  );
+
+  if (!presignEvent) {
+    throw new Error("PresignRequestEvent not found in transaction events");
+  }
+
+  const parsedPresignEvent = SessionsManagerModule.DWalletSessionEvent(
+    CoordinatorInnerModule.PresignRequestEvent,
+  ).fromBase64(presignEvent.bcs as string);
+
+  const presignId = parsedPresignEvent.event_data.presign_id;
+
+  // 10. Wait for presign to complete on the network (MPC computation)
+  status("Waiting for presign to complete (MPC computation)...");
+  try {
+    await ikaClient.getPresignInParticularState(presignId, "Completed");
+    status("Presign created successfully!");
+  } catch {
+    status("Presign submitted. It may still be processing.");
+  }
+
+  return {
+    transactionDigest: digest,
+    presignId,
+  };
 }
