@@ -447,13 +447,26 @@ export default function TradePage() {
     <div className="min-h-screen bg-zinc-950 font-[family-name:var(--font-geist-sans)]">
       {/* ── TOP NAV ── */}
       <header className="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur-md border-b border-zinc-800/50">
-        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
+        <div className="max-w-[1600px] mx-auto px-6 sm:px-8 h-14 flex items-center gap-4">
           <Link href="/" className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors mr-1">
             <ArrowLeft size={16} />
           </Link>
-          <Link href="/" className="text-base font-bold tracking-wider text-zinc-100 mr-4">
+          <Link href="/" className="text-base font-bold tracking-wider text-zinc-100 mr-2">
             NEXUS
           </Link>
+
+          {/* ── Trade / Portfolio Tab ── */}
+          <div className="flex items-center gap-0.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-1 mr-2">
+            <div className="px-3 py-1.5 text-[12px] font-medium tracking-wide rounded-md bg-zinc-700 text-zinc-100 shadow-sm">
+              Trade
+            </div>
+            <Link
+              href="/portfolio"
+              className="px-3 py-1.5 text-[12px] font-medium tracking-wide rounded-md text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              Portfolio
+            </Link>
+          </div>
 
           {/* Market Selector */}
           <div className="relative">
@@ -467,7 +480,7 @@ export default function TradePage() {
             </button>
 
             {marketDropdown && (
-              <div className="absolute z-50 top-full left-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-xl shadow-xl overflow-hidden">
+              <div className="absolute z-50 top-full left-0 mt-2 w-56 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-lg overflow-hidden">
                 {MARKETS.map((m) => (
                   <button
                     key={m.symbol}
@@ -511,11 +524,11 @@ export default function TradePage() {
       </header>
 
       {/* ── MAIN CONTENT ── */}
-      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 space-y-4">
+      <main className="max-w-[1600px] mx-auto px-6 sm:px-8 py-6 space-y-6">
         {/* Top row: Chart + Order Entry */}
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex flex-col lg:flex-row gap-6">
           {/* Chart Card */}
-          <div className="flex-1 lg:w-[75%] bg-zinc-900/80 border border-zinc-800 rounded-xl overflow-hidden shadow-xl shadow-black/20">
+          <div className="flex-1 lg:w-[75%] bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-lg">
             {/* Chart container */}
             <div className="h-[480px] lg:h-[540px]">
               <TradingViewWidget symbol={selectedMarket.tv} />
@@ -532,7 +545,7 @@ export default function TradePage() {
 
           {/* Order Entry Card */}
           <div className="lg:w-[25%] min-w-[300px]">
-            <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-5 shadow-xl shadow-black/20 sticky top-20">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-lg sticky top-20">
               <h2 className="text-[14px] font-semibold text-zinc-200 mb-4">Place Order</h2>
               <OrderEntry />
             </div>
@@ -540,7 +553,7 @@ export default function TradePage() {
         </div>
 
         {/* Bottom: Positions / Orders */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl overflow-hidden shadow-xl shadow-black/20">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-lg">
           <PositionsPanel />
         </div>
       </main>
