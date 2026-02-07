@@ -1,28 +1,49 @@
 "use client";
 
-import { useEffect, useRef, memo } from "react";
+import { useEffect, useMemo, memo } from "react";
 
 interface TradingViewWidgetProps {
   symbol?: string;
 }
 
 function TradingViewWidgetInner({ symbol = "BINANCE:BTCUSDT" }: TradingViewWidgetProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scriptRef = useRef<HTMLScriptElement | null>(null);
-
+  // Suppress WebSocket 1006 errors thrown by Brave's requestRelay.js
+  // content script. The extension monitors all network activity (including
+  // iframes) and throws in the parent page context when connections close
+  // abnormally. This is a Brave bug, not an app error.
   useEffect(() => {
-    if (!containerRef.current) return;
+    const handleError = (event: ErrorEvent) => {
+      if (
+        event.message?.includes("websocket error 1006") ||
+        event.filename?.includes("chrome-extension://")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+    };
 
-    // Clear previous widget
-    containerRef.current.innerHTML = "";
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason?.toString?.() ?? "";
+      if (reason.includes("websocket error 1006")) {
+        event.preventDefault();
+        return;
+      }
+    };
 
-    const script = document.createElement("script");
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
-    script.type = "text/javascript";
-    script.async = true;
-    script.innerHTML = JSON.stringify({
+    window.addEventListener("error", handleError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener("error", handleError);
+      window.removeEventListener("unhandledrejection", handleUnhandledRejection);
+    };
+  }, []);
+
+  const iframeSrc = useMemo(() => {
+    const config = {
       autosize: true,
-      symbol: symbol,
+      symbol,
       interval: "60",
       timezone: "Etc/UTC",
       theme: "dark",
@@ -54,21 +75,21 @@ function TradingViewWidgetInner({ symbol = "BINANCE:BTCUSDT" }: TradingViewWidge
         "mainSeriesProperties.candleStyle.borderUpColor": "#00c076",
         "mainSeriesProperties.candleStyle.borderDownColor": "#ff5353",
       },
-    });
-
-    containerRef.current.appendChild(script);
-    scriptRef.current = script;
-
-    return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = "";
-      }
     };
+
+    return `https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=en#${encodeURIComponent(JSON.stringify(config))}`;
   }, [symbol]);
 
   return (
-    <div className="tradingview-widget-container h-full w-full" ref={containerRef}>
-      <div className="tradingview-widget-container__widget h-full w-full" />
+    <div className="tradingview-widget-container h-full w-full">
+      <iframe
+        src={iframeSrc}
+        className="h-full w-full"
+        style={{ border: "none" }}
+        sandbox="allow-scripts allow-same-origin allow-popups"
+        allow="clipboard-read; clipboard-write"
+        title="TradingView Chart"
+      />
     </div>
   );
 }

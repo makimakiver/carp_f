@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Loader2, Wallet, CircleDot, Lock, Zap, FileSignature } from "lucide-react";
+import { X, Loader2, Wallet, CircleDot, Lock, Zap, FileSignature, Copy, Check } from "lucide-react";
 import { getDWalletState, type DWalletState } from "@/lib/dwallet";
 
 interface DWalletStateModalProps {
@@ -10,6 +10,7 @@ interface DWalletStateModalProps {
   onClose: () => void;
   dWalletAddr: string;
   label: string;
+  presignIds?: string[];
   onActivate?: (password: string) => Promise<void>;
   onCreatePresign?: (password: string) => Promise<void>;
 }
@@ -31,6 +32,7 @@ export default function DWalletStateModal({
   onClose,
   dWalletAddr,
   label,
+  presignIds = [],
   onActivate,
   onCreatePresign,
 }: DWalletStateModalProps) {
@@ -48,6 +50,15 @@ export default function DWalletStateModal({
   const [presignStatus, setPresignStatus] = useState("");
   const [presignError, setPresignError] = useState("");
 
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  function copyToClipboard(text: string, field: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    });
+  }
+
   useEffect(() => {
     if (!open) {
       setPassword("");
@@ -58,6 +69,7 @@ export default function DWalletStateModal({
       setCreatingPresign(false);
       setPresignStatus("");
       setPresignError("");
+      setCopiedField(null);
     }
   }, [open]);
 
@@ -154,11 +166,22 @@ export default function DWalletStateModal({
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-zinc-100">{label}</h2>
-                  <p className="text-[10px] font-mono text-zinc-600">
-                    {dWalletAddr.length > 16
-                      ? `${dWalletAddr.slice(0, 8)}...${dWalletAddr.slice(-6)}`
-                      : dWalletAddr}
-                  </p>
+                  <button
+                    onClick={() => copyToClipboard(dWalletAddr, "addr")}
+                    className="flex items-center gap-1 group"
+                    title="Copy dWallet address"
+                  >
+                    <span className="text-[10px] font-mono text-zinc-600 group-hover:text-zinc-400 transition-colors">
+                      {dWalletAddr.length > 16
+                        ? `${dWalletAddr.slice(0, 8)}...${dWalletAddr.slice(-6)}`
+                        : dWalletAddr}
+                    </span>
+                    {copiedField === "addr" ? (
+                      <Check size={10} className="text-emerald-400" />
+                    ) : (
+                      <Copy size={10} className="text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                    )}
+                  </button>
                 </div>
               </div>
               <button
@@ -197,7 +220,26 @@ export default function DWalletStateModal({
                   </div>
 
                   <div className="px-4 py-3 bg-zinc-800/50 rounded-xl">
-                    <div className="text-[11px] text-zinc-500 uppercase tracking-wide mb-1">Object ID</div>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="text-[11px] text-zinc-500 uppercase tracking-wide">Object ID</div>
+                      <button
+                        onClick={() => copyToClipboard(dwalletState.objectId, "objectId")}
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                        title="Copy Object ID"
+                      >
+                        {copiedField === "objectId" ? (
+                          <>
+                            <Check size={10} className="text-emerald-400" />
+                            <span className="text-[10px] text-emerald-400">Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={10} />
+                            <span className="text-[10px]">Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <div className="text-[12px] font-mono text-zinc-300 break-all">{dwalletState.objectId}</div>
                   </div>
 
@@ -253,6 +295,41 @@ export default function DWalletStateModal({
                           </>
                         )}
                       </button>
+                    </div>
+                  )}
+
+                  {isActive && (
+                    <div className="px-4 py-3 bg-zinc-800/50 rounded-xl">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-[11px] text-zinc-500 uppercase tracking-wide">
+                          Presign Caps
+                        </div>
+                        <span className="text-[11px] font-mono text-zinc-400 bg-zinc-700/50 px-2 py-0.5 rounded">
+                          {presignIds.length}
+                        </span>
+                      </div>
+                      {presignIds.length === 0 ? (
+                        <p className="text-[12px] text-zinc-600 italic">
+                          No presign caps yet. Create one below to enable signing.
+                        </p>
+                      ) : (
+                        <div className="space-y-1.5 max-h-[120px] overflow-y-auto">
+                          {presignIds.map((id, idx) => (
+                            <div
+                              key={id}
+                              className="flex items-center gap-2 px-2.5 py-1.5 bg-zinc-900/60 border border-zinc-700/40 rounded-lg"
+                            >
+                              <FileSignature size={10} className="text-emerald-400 shrink-0" />
+                              <span className="text-[11px] font-mono text-zinc-400 truncate">
+                                {id.length > 20 ? `${id.slice(0, 8)}...${id.slice(-6)}` : id}
+                              </span>
+                              <span className="text-[9px] text-zinc-600 ml-auto shrink-0">
+                                #{idx + 1}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

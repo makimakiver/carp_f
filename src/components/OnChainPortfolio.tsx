@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useCurrentAccount, useCurrentClient, useDAppKit } from "@mysten/dapp-kit-react";
 import { Wallet, Plus } from "lucide-react";
 import CreateDWalletModal from "./CreateDWalletModal";
@@ -19,6 +19,7 @@ export interface RegistryWalletEntry {
   user_public_output: number[];
   label: string;
   chain: string;
+  presign_ids: string[];
 }
 
 /* ── Hook: fetch wallet entries from the on-chain WalletRegistry table ─ */
@@ -71,15 +72,64 @@ export function useRegistryWallets(address: string | undefined) {
       const entries = fieldData.result?.data?.content?.fields?.value;
 
       if (Array.isArray(entries)) {
-        setWallets(
-          entries.map((e: any) => ({
-            dwallet_addr: e.fields.dwallet_addr,
-            session_id: e.fields.session_id ?? [],
-            user_public_output: e.fields.user_public_output ?? [],
-            label: e.fields.label,
-            chain: e.fields.chain,
-          })),
-        );
+        // Parse entries and resolve presign cap object IDs to actual presign_id fields
+        const parsedEntries = entries.map((e: any) => ({
+          dwallet_addr: e.fields.dwallet_addr,
+          session_id: e.fields.session_id ?? [],
+          user_public_output: e.fields.user_public_output ?? [],
+          label: e.fields.label,
+          chain: e.fields.chain,
+          presign_ids: Array.isArray(e.fields.presign_ids)
+            ? e.fields.presign_ids
+            : [],
+        }));
+
+        // Collect all presign cap object IDs across all wallets
+        const allCapIds: string[] = parsedEntries.flatMap((e: any) => e.presign_ids);
+        console.log("[PresignDebug] Cap object IDs from registry:", allCapIds);
+
+        // Resolve each cap object ID → its presign_id field via getObject
+        const resolvedPresignMap = new Map<string, string>();
+        if (allCapIds.length > 0) {
+          const batchRes = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(
+              allCapIds.map((capId: string, idx: number) => ({
+                jsonrpc: "2.0",
+                id: idx + 100,
+                method: "sui_getObject",
+                params: [capId, { showContent: true }],
+              })),
+            ),
+          });
+          const batchData = await batchRes.json();
+          const results = Array.isArray(batchData) ? batchData : [batchData];
+
+          for (const res of results) {
+            const fields = res?.result?.data?.content?.fields;
+            const objectId = res?.result?.data?.objectId;
+            console.log("[PresignDebug] getObject response for", objectId, "→ fields:", JSON.stringify(fields, null, 2));
+            if (fields?.presign_id && objectId) {
+              console.log("[PresignDebug] Resolved capId:", objectId, "→ presign_id:", fields.presign_id);
+              resolvedPresignMap.set(objectId, fields.presign_id);
+            }
+          }
+        }
+
+        console.log("[PresignDebug] Full resolved map:", Object.fromEntries(resolvedPresignMap));
+
+        // Replace cap object IDs with the resolved presign_id values
+        const walletsWithResolvedPresigns = parsedEntries.map((e: any) => ({
+          ...e,
+          presign_ids: e.presign_ids
+            .map((capId: string) => resolvedPresignMap.get(capId))
+            .filter(Boolean),
+        }));
+
+        console.log("[PresignDebug] Final wallet presign_ids:", walletsWithResolvedPresigns.map((w: any) => ({ label: w.label, presign_ids: w.presign_ids })));
+
+        setWallets(walletsWithResolvedPresigns);
       } else {
         setWallets([]);
       }
@@ -182,7 +232,30 @@ export function ConnectedWallets() {
     label: string;
     chain: string;
     user_public_output: number[];
+    presign_ids: string[];
   } | null>(null);
+
+  // Track when we just created a wallet so we can auto-open the state modal
+  const pendingActivation = useRef(false);
+  const prevWalletCount = useRef(registryWallets.length);
+
+  useEffect(() => {
+    // If a new wallet appeared in the registry after creation, auto-open its state modal
+    if (pendingActivation.current && registryWallets.length > prevWalletCount.current) {
+      pendingActivation.current = false;
+      const newest = registryWallets[registryWallets.length - 1];
+      if (newest) {
+        setStateModalWallet({
+          addr: newest.dwallet_addr,
+          label: newest.label,
+          chain: newest.chain,
+          user_public_output: newest.user_public_output,
+          presign_ids: newest.presign_ids,
+        });
+      }
+    }
+    prevWalletCount.current = registryWallets.length;
+  }, [registryWallets]);
 
   function addToast(message: string, type: ToastItem["type"]) {
     const id = `toast-${++toastCounter}`;
@@ -224,12 +297,14 @@ export function ConnectedWallets() {
       });
       updateToast(
         statusToastId,
-        `dWallet created! Tx: ${result.transactionDigest.slice(0, 10)}...`,
+        `dWallet created! Tx: ${result.transactionDigest.slice(0, 10)}... Opening wallet for activation...`,
         "success",
       );
       setModalOpen(false);
-      // Refresh registry wallets after creation
-      refetchRegistry();
+      // Flag that we want to auto-open the state modal once the new wallet appears
+      pendingActivation.current = true;
+      // Refresh registry wallets — the effect will auto-open the state modal
+      await refetchRegistry();
     } catch (err: any) {
       console.error("Failed to create dWallet:", err);
       const msg = err?.message || "Failed to create dWallet";
@@ -250,7 +325,7 @@ export function ConnectedWallets() {
       {evmWallets.map((w) => (
         <button
           key={w.dwallet_addr}
-          onClick={() => setStateModalWallet({ addr: w.dwallet_addr, label: w.label, chain: w.chain, user_public_output: w.user_public_output })}
+          onClick={() => setStateModalWallet({ addr: w.dwallet_addr, label: w.label, chain: w.chain, user_public_output: w.user_public_output, presign_ids: w.presign_ids })}
           className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 border border-zinc-700/50 rounded-lg hover:bg-zinc-800 hover:border-zinc-600 transition-colors cursor-pointer"
         >
           <Wallet size={12} className="text-zinc-500" />
@@ -289,6 +364,7 @@ export function ConnectedWallets() {
         onClose={() => setStateModalWallet(null)}
         dWalletAddr={stateModalWallet?.addr ?? ""}
         label={stateModalWallet?.label ?? ""}
+        presignIds={stateModalWallet?.presign_ids ?? []}
         onActivate={async (password: string) => {
           if (!account || !stateModalWallet) return;
 
@@ -313,6 +389,7 @@ export function ConnectedWallets() {
           await createPresign({
             password,
             chain,
+            dwalletAddr: stateModalWallet.addr,
             senderAddress: account.address,
             signAndExecuteTransaction: (args) =>
               dAppKit.signAndExecuteTransaction({ transaction: args.transaction }),
