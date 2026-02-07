@@ -2,10 +2,14 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Settings,
+<<<<<<< HEAD
   Plus,
+=======
+>>>>>>> 2dd58ea (dWallet creation is done)
   ArrowRightLeft,
   ArrowUpRight,
   ArrowDownLeft,
@@ -26,7 +30,21 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import ConnectWalletButton from "@/components/ConnectWalletButton";
+
+const ConnectWalletButton = dynamic(
+  () => import("@/components/ConnectWalletButton"),
+  { ssr: false },
+);
+
+const OnChainPortfolio = dynamic(
+  () => import("@/components/OnChainPortfolio"),
+  { ssr: false },
+);
+
+const ConnectedWallets = dynamic(
+  () => import("@/components/OnChainPortfolio").then((mod) => mod.ConnectedWallets),
+  { ssr: false },
+);
 
 /* ================================================================
    DATA
@@ -625,15 +643,8 @@ export default function PortfolioPage() {
                 </div>
               </div>
 
-              {/* Smart Wallet Badges */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {WALLETS.map((w) => (
-                  <WalletBadge key={w.address} wallet={w} />
-                ))}
-                <button className="flex h-9 w-9 items-center justify-center rounded-full border border-dashed border-zinc-700 text-zinc-600 hover:border-zinc-500 hover:text-zinc-400 transition-colors">
-                  <Plus size={14} />
-                </button>
-              </div>
+              {/* Connected Wallets — only shown when dWallet count > 0 */}
+              <ConnectedWallets />
             </div>
           </div>
 
@@ -655,6 +666,9 @@ export default function PortfolioPage() {
           </div>
           <AssetTable />
         </div>
+
+        {/* dWallets + NFTs (rendered as separate component to defer hook calls) */}
+        <OnChainPortfolio />
 
         {/* Bottom row: Chart + Activity */}
         <div className="flex flex-col lg:flex-row gap-5">

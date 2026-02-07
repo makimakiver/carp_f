@@ -12,7 +12,7 @@ export function DAppKitClientProvider({ children }: { children: React.ReactNode 
 	}, []);
 
 	if (!mounted) {
-		return <>{children}</>;
+		return null;
 	}
 
 	return <DAppKitProvider dAppKit={dAppKit}>{children}</DAppKitProvider>;

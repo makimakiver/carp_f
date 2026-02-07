@@ -12,8 +12,13 @@ import {
   AlertTriangle,
   Percent,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { TradingViewWidget } from "@/components/tradingview-widget";
-import ConnectWalletButton from "@/components/ConnectWalletButton";
+
+const ConnectWalletButton = dynamic(
+  () => import("@/components/ConnectWalletButton"),
+  { ssr: false },
+);
 
 /* ================================================================
    DATA
