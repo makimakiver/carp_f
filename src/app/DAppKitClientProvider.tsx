@@ -1,19 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { DAppKitProvider } from '@mysten/dapp-kit-react';
-import { dAppKit } from './dapp-kit';
+import { useState, useEffect, type ReactNode } from 'react';
 
-export function DAppKitClientProvider({ children }: { children: React.ReactNode }) {
-	const [mounted, setMounted] = useState(false);
+export function DAppKitClientProvider({ children }: { children: ReactNode }) {
+	const [Provider, setProvider] = useState<React.ComponentType<any> | null>(null);
+	const [kit, setKit] = useState<any>(null);
 
 	useEffect(() => {
-		setMounted(true);
+		(async () => {
+			const [{ DAppKitProvider }, { dAppKit }] = await Promise.all([
+				import('@mysten/dapp-kit-react'),
+				import('./dapp-kit'),
+			]);
+			setKit(dAppKit);
+			// Wrap in arrow so React doesn't call it as a state initializer
+			setProvider(() => DAppKitProvider);
+		})();
 	}, []);
 
-	if (!mounted) {
+	if (!Provider || !kit) {
 		return null;
 	}
 
-	return <DAppKitProvider dAppKit={dAppKit}>{children}</DAppKitProvider>;
+	return <Provider dAppKit={kit}>{children}</Provider>;
 }
