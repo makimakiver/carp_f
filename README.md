@@ -1,4 +1,4 @@
-##Important links: 
+## Important links: 
 
 Demo video: https://youtu.be/J9d1FgAEI2A
 
@@ -9,6 +9,7 @@ Ika testnet faucet: https://faucet.ika.xyz/
 Sui testnet faucet: https://faucet.sui.io/
 
 (you are recommended to open the positions on hyperliquid mainnet!!)
+
 
 # CARP
 
