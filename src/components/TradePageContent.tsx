@@ -41,6 +41,8 @@ import {
   buildUnsignedDeposit,
   buildUnsignedPlaceOrder,
   broadcastSignedTx,
+  checkUsdcAllowance,
+  checkUsdcBalance,
   deriveEvmAddress,
   getEvmBalances,
   getHypercoreBalance,
@@ -48,6 +50,7 @@ import {
   createHyperEvmProvider,
   ASSET_INDEX,
   USDC_ADDRESS,
+  fetchAllMids,
 } from "@/lib/hyperliquid";
 import { ethers } from "ethers";
 
@@ -167,9 +170,10 @@ function OrderBook() {
 
 interface OrderEntryProps {
   selectedMarket: typeof MARKETS[0];
+  livePrice: string | null;
 }
 
-function OrderEntry({ selectedMarket }: OrderEntryProps) {
+function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
   const account = useCurrentAccount();
   const dAppKit = useDAppKit();
 
@@ -316,6 +320,28 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
     return () => { cancelled = true; };
   }, [selectedWallet, hlRpcUrl]);
 
+  // Auto-refresh balances every 30s when an EVM address is known
+  useEffect(() => {
+    if (!evmAddress) return;
+    const interval = setInterval(async () => {
+      try {
+        if (hlRpcUrl) {
+          const bals = await getEvmBalances(hlRpcUrl, evmAddress);
+          setEvmBalances(bals);
+        }
+      } catch { /* non-critical */ }
+      try {
+        const hcBal = await getHypercoreBalance(evmAddress);
+        setHypercoreBalance(hcBal);
+      } catch { /* non-critical */ }
+      try {
+        const sBal = await getSpotBalance(evmAddress);
+        setSpotBalance(sBal);
+      } catch { /* non-critical */ }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [evmAddress, hlRpcUrl]);
+
   // Unlock dWallet (password still needed for signing operations)
   const handleUnlock = useCallback(async () => {
     if (!selectedWallet || !password) return;
@@ -353,7 +379,13 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
   // Place order handler
   async function handlePlaceOrder(isBuy: boolean) {
     if (!selectedWallet || !account || !signAndExecute || !hlRpcUrl || !isUnlocked) return;
-    if (!size || !price) return;
+
+    const isMarket = orderType === "market";
+    if (isMarket) {
+      if (!size || !livePrice) return;
+    } else {
+      if (!size || !price) return;
+    }
 
     setIsSubmitting(true);
     setOrderStatus("");
@@ -366,8 +398,25 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
       }
       const provider = createHyperEvmProvider(hlRpcUrl);
       const assetIndex = ASSET_INDEX[selectedMarket.symbol] ?? 0;
-      const cleanPrice = stripCommas(price);
       const cleanSize = stripCommas(size);
+
+      // Market orders: use live mid price ± slippage, TIF=IOC
+      // Limit orders: use user-entered price, TIF=GTC
+      let orderPrice: string;
+      let orderTif: number;
+
+      if (isMarket) {
+        const slippagePct = parseFloat(slippage) / 100;
+        const mid = parseFloat(livePrice!);
+        const adjusted = isBuy
+          ? mid * (1 + slippagePct)
+          : mid * (1 - slippagePct);
+        orderPrice = adjusted.toString();
+        orderTif = 3; // IOC
+      } else {
+        orderPrice = stripCommas(price);
+        orderTif = 2; // GTC
+      }
 
       setOrderStatus("Building order transaction...");
       const { populated, unsignedBytes } = await buildUnsignedPlaceOrder(
@@ -375,10 +424,10 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
         evmAddress,
         assetIndex,
         isBuy,
-        cleanPrice,
+        orderPrice,
         cleanSize,
         false, // reduceOnly
-        3,     // tif: GTC
+        orderTif,
       );
 
       const rawSig = await signBytesWithDWallet({
@@ -428,50 +477,77 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
     setDepositSuccess("");
 
     try {
-      if (availablePresigns.length < 2) {
-        throw new Error("Deposit requires at least 2 presign caps (1 for approve, 1 for deposit).");
-      }
       const provider = createHyperEvmProvider(hlRpcUrl);
       const amountUsdc = BigInt(Math.round(parseFloat(depositAmount) * 1_000_000));
 
-      // ── Step 1: Approve USDC ──
-      setDepositStatus("Building approve transaction...");
-      const approve = await buildUnsignedApprove(provider, evmAddress, amountUsdc);
-
-      setDepositStatus("Signing approve via dWallet...");
-      const approveSig = await signBytesWithDWallet({
-        password,
-        dWalletObjectId: selectedWallet.dwallet_addr,
-        userPublicOutput: new Uint8Array(selectedWallet.user_public_output),
-        presignIds: availablePresigns,
-        unsignedBytes: approve.unsignedBytes,
-        senderAddress: account.address,
-        signAndExecuteTransaction: signAndExecute,
-        onStatus: setDepositStatus,
-      });
-
-      setDepositStatus("Broadcasting approve...");
-      const approveTxHash = await broadcastSignedTx(
-        provider, approve.populated, approve.unsignedBytes, approveSig, evmAddress,
-      );
-
-      setDepositStatus("Waiting for approve confirmation...");
-      const approveReceipt = await provider.waitForTransaction(approveTxHash);
-      if (approveReceipt?.status !== 1) {
-        throw new Error("Approve transaction failed on-chain");
+      // ── Pre-flight: verify on-chain USDC balance is sufficient ──
+      setDepositStatus("Checking USDC balance...");
+      const onChainBalance = await checkUsdcBalance(provider, evmAddress);
+      if (onChainBalance < amountUsdc) {
+        const have = Number(onChainBalance) / 1e6;
+        const need = Number(amountUsdc) / 1e6;
+        throw new Error(
+          `Insufficient USDC on HyperEVM. Have ${have} USDC, need ${need} USDC. ` +
+          `Bridge more USDC to your dWallet address on HyperEVM first.`
+        );
       }
-      const usedApprovePresign = approveSig.usedPresignId;
-      setUsedPresigns((prev) => new Set(prev).add(usedApprovePresign));
+
+      // ── Step 1: Check allowance & approve if needed ──
+      setDepositStatus("Checking USDC allowance...");
+      const currentAllowance = await checkUsdcAllowance(provider, evmAddress);
+      const needsApproval = currentAllowance < amountUsdc;
+      let usedApprovePresign: string | null = null;
+      let approveNonce: number | null = null;
+
+      if (needsApproval) {
+        if (availablePresigns.length < 2) {
+          throw new Error("Deposit requires at least 2 presign caps (1 for approve, 1 for deposit).");
+        }
+
+        setDepositStatus("Building approve transaction...");
+        const approve = await buildUnsignedApprove(provider, evmAddress, amountUsdc);
+
+        setDepositStatus("Signing approve via dWallet...");
+        const approveSig = await signBytesWithDWallet({
+          password,
+          dWalletObjectId: selectedWallet.dwallet_addr,
+          userPublicOutput: new Uint8Array(selectedWallet.user_public_output),
+          presignIds: availablePresigns,
+          unsignedBytes: approve.unsignedBytes,
+          senderAddress: account.address,
+          signAndExecuteTransaction: signAndExecute,
+          onStatus: setDepositStatus,
+        });
+
+        setDepositStatus("Broadcasting approve...");
+        const approveTxHash = await broadcastSignedTx(
+          provider, approve.populated, approve.unsignedBytes, approveSig, evmAddress,
+        );
+
+        setDepositStatus("Waiting for approve confirmation...");
+        const approveReceipt = await provider.waitForTransaction(approveTxHash);
+        if (approveReceipt?.status !== 1) {
+          throw new Error("Approve transaction failed on-chain");
+        }
+        usedApprovePresign = approveSig.usedPresignId;
+        approveNonce = approve.nonce;
+        setUsedPresigns((prev) => new Set(prev).add(usedApprovePresign!));
+      } else {
+        setDepositStatus("Allowance sufficient, skipping approve.");
+      }
 
       // ── Step 2: Deposit USDC ──
-      // Filter out the presign used by approve
-      const remainingPresigns = availablePresigns.filter((id) => id !== usedApprovePresign);
+      const remainingPresigns = usedApprovePresign
+        ? availablePresigns.filter((id) => id !== usedApprovePresign)
+        : availablePresigns;
       if (remainingPresigns.length === 0) {
         throw new Error("No presign caps remaining for deposit. Create more presigns.");
       }
 
       setDepositStatus("Building deposit transaction...");
-      const deposit = await buildUnsignedDeposit(provider, evmAddress, amountUsdc, 0);
+      // If approve was sent, use its nonce + 1 to avoid stale-nonce from load-balanced RPCs.
+      const depositNonce = approveNonce != null ? approveNonce + 1 : undefined;
+      const deposit = await buildUnsignedDeposit(provider, evmAddress, amountUsdc, 0, depositNonce);
 
       setDepositStatus("Signing deposit via dWallet...");
       const depositSig = await signBytesWithDWallet({
@@ -497,14 +573,41 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
       if (depositReceipt?.status === 1) {
         setDepositSuccess(`Deposited ${depositAmount} USDC! Tx: ${depositTxHash.slice(0, 10)}...`);
         if (evmAddress) {
+          // Refresh EVM balance immediately (deducted right away)
           try {
             const bals = await getEvmBalances(hlRpcUrl, evmAddress);
             setEvmBalances(bals);
           } catch { /* non-critical */ }
+
+          // HyperCore bridge takes ~60-120s to settle.
+          // Poll every 10s for up to 2 minutes until the balance increases.
+          setDepositStatus("Waiting for HyperCore bridge settlement...");
+          const prevAccountValue = parseFloat(hypercoreBalance?.accountValue ?? "0");
+          let settled = false;
+          for (let attempt = 0; attempt < 12; attempt++) {
+            await new Promise((r) => setTimeout(r, 10_000));
+            try {
+              const hcBal = await getHypercoreBalance(evmAddress);
+              setHypercoreBalance(hcBal);
+              const newAccountValue = parseFloat(hcBal.accountValue);
+              if (newAccountValue > prevAccountValue) {
+                settled = true;
+                break;
+              }
+            } catch { /* retry */ }
+            setDepositStatus(`Waiting for HyperCore bridge settlement... (${(attempt + 1) * 10}s)`);
+          }
+          // Also refresh spot balance
           try {
-            const hcBal = await getHypercoreBalance(evmAddress);
-            setHypercoreBalance(hcBal);
+            const sBal = await getSpotBalance(evmAddress);
+            setSpotBalance(sBal);
           } catch { /* non-critical */ }
+
+          if (!settled) {
+            setDepositSuccess(
+              `Deposit tx confirmed! Bridge settlement may take a few more minutes. Tx: ${depositTxHash.slice(0, 10)}...`
+            );
+          }
         }
       } else {
         setDepositError("Deposit transaction failed on-chain");
@@ -520,12 +623,12 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
 
   // ── MetaMask helpers ──
 
-  const HYPER_EVM_TESTNET = {
-    chainId: "0x3E6", // 998 in hex — HyperEVM testnet
-    chainName: "Hyperliquid Testnet",
-    rpcUrls: ["https://api.hyperliquid-testnet.xyz/evm"],
+  const HYPER_EVM_MAINNET = {
+    chainId: "0x3E7", // 999 in hex — HyperEVM mainnet
+    chainName: "Hyperliquid",
+    rpcUrls: ["https://rpc.hyperliquid.xyz/evm"],
     nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
-    blockExplorerUrls: ["https://testnet.purrsec.com"],
+    blockExplorerUrls: ["https://purrsec.com"],
   };
 
   async function connectMetaMask() {
@@ -546,14 +649,14 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
       try {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: HYPER_EVM_TESTNET.chainId }],
+          params: [{ chainId: HYPER_EVM_MAINNET.chainId }],
         });
       } catch (switchErr: any) {
         // 4902 = chain not added
         if (switchErr.code === 4902) {
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
-            params: [HYPER_EVM_TESTNET],
+            params: [HYPER_EVM_MAINNET],
           });
         } else {
           throw switchErr;
@@ -1022,8 +1125,8 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
         </div>
       </div>
 
-      {/* ── Price Input (Limit) ── */}
-      {orderType === "limit" && (
+      {/* ── Price Input (Limit) / Market Price Display ── */}
+      {orderType === "limit" ? (
         <div>
           <label className="text-zinc-400 text-[12px] mb-1.5 block">Price</label>
           <div className="flex items-center bg-zinc-800/60 border border-zinc-700/50 rounded-lg h-10 overflow-hidden">
@@ -1035,6 +1138,21 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
             />
             <button className="px-3 text-zinc-500 hover:text-zinc-300 transition-colors h-full text-lg" aria-label="Increase price">+</button>
             <span className="text-zinc-500 text-[10px] pr-3 font-mono">USD</span>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <label className="text-zinc-400 text-[12px] mb-1.5 block">Market Price</label>
+          <div className="flex items-center justify-between bg-zinc-800/60 border border-zinc-700/50 rounded-lg h-10 px-3">
+            <span className="text-zinc-100 font-mono text-[13px]">
+              {livePrice
+                ? parseFloat(livePrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : "Loading..."}
+            </span>
+            <span className="text-zinc-500 text-[10px] font-mono">USD (live)</span>
+          </div>
+          <div className="text-[10px] text-zinc-600 mt-1">
+            Executes at market price ± {slippage}% slippage
           </div>
         </div>
       )}
@@ -1125,7 +1243,7 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
         {[
           { label: "Perps Balance", value: hypercoreBalance ? `${parseFloat(hypercoreBalance.accountValue).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : "-- USDC" },
           { label: "Spot Balance", value: spotBalance ? `${parseFloat(spotBalance.totalUsdValue).toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : "-- USDC" },
-          { label: "Order Value", value: size ? `${(parseFloat(stripCommas(size) || "0") * parseFloat(stripCommas(price) || "0")).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD` : "-- USD" },
+          { label: "Order Value", value: size ? `${(parseFloat(stripCommas(size) || "0") * parseFloat(orderType === "market" ? (livePrice || "0") : stripCommas(price) || "0")).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD` : "-- USD" },
           { label: "Est. Liq. Price", value: "--" },
           { label: "Fee (Maker / Taker)", value: "0.02% / 0.05%" },
         ].map((row) => (
@@ -1164,7 +1282,7 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
       <div className="grid grid-cols-2 gap-2.5 pt-1">
         <button
           onClick={() => handlePlaceOrder(true)}
-          disabled={!isUnlocked || isSubmitting || !size || !price || availablePresigns.length === 0}
+          disabled={!isUnlocked || isSubmitting || !size || (orderType === "limit" ? !price : !livePrice) || availablePresigns.length === 0}
           className="h-11 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] tracking-wide transition-colors flex items-center justify-center gap-2"
         >
           {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -1172,7 +1290,7 @@ function OrderEntry({ selectedMarket }: OrderEntryProps) {
         </button>
         <button
           onClick={() => handlePlaceOrder(false)}
-          disabled={!isUnlocked || isSubmitting || !size || !price || availablePresigns.length === 0}
+          disabled={!isUnlocked || isSubmitting || !size || (orderType === "limit" ? !price : !livePrice) || availablePresigns.length === 0}
           className="h-11 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] tracking-wide transition-colors flex items-center justify-center gap-2"
         >
           {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : null}
@@ -1297,6 +1415,24 @@ function PositionsPanel() {
 export default function TradePageContent() {
   const [selectedMarket, setSelectedMarket] = useState(MARKETS[0]!);
   const [marketDropdown, setMarketDropdown] = useState(false);
+  const [livePrices, setLivePrices] = useState<Record<string, string>>({});
+
+  // Poll live mid-market prices every 3 seconds
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const mids = await fetchAllMids();
+        if (!cancelled) setLivePrices(mids);
+      } catch { /* non-critical */ }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  const coin = selectedMarket.symbol.replace("-PERP", "");
+  const currentPrice = livePrices[coin] || null;
 
   return (
     <div className="min-h-screen bg-zinc-950 font-[family-name:var(--font-geist-sans)]">
@@ -1356,7 +1492,11 @@ export default function TradePageContent() {
 
           {/* Stats */}
           <div className="hidden md:flex items-center gap-6 ml-3">
-            <span className="text-lg font-mono font-bold text-zinc-100">{selectedMarket.price}</span>
+            <span className="text-lg font-mono font-bold text-zinc-100">
+              {currentPrice
+                ? parseFloat(currentPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                : selectedMarket.price}
+            </span>
             {[
               { label: "24h Change", value: selectedMarket.change, color: selectedMarket.positive ? "text-emerald-400" : "text-rose-400" },
               { label: "24h High", value: "43,890.00", color: "text-zinc-300" },

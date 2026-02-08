@@ -12,9 +12,9 @@ import { SuiJsonRpcClient } from "@mysten/sui/jsonRpc";
    HYPERLIQUID CONTRACT ADDRESSES
    ================================================================ */
 
-export const USDC_ADDRESS = "0x2B3370eE501B4a559b57D449569354196457D8Ab";
+export const USDC_ADDRESS = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
 const USDC = USDC_ADDRESS;
-const CORE_DEPOSIT_WALLET = "0x0B80659a4076E9E93C7DbE0f10675A16a3e5C206";
+const CORE_DEPOSIT_WALLET = "0x6b9e773128f453f5c2c60935ee2de2cbc5390a24";
 const CORE_WRITER = "0x3333333333333333333333333333333333333333";
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
@@ -24,6 +24,7 @@ const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 
 const usdcAbi = [
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
   "function balanceOf(address owner) view returns (uint256)",
 ];
 const coreDepositAbi = [
@@ -56,7 +57,7 @@ export const ASSET_INDEX: Record<string, number> = {
  * eth_getBlockByNumber("latest") auto-detection that fails on Hyperliquid.
  */
 export function createHyperEvmProvider(rpcUrl: string): ethers.JsonRpcProvider {
-  const network = new ethers.Network("hyperliquid-testnet", 998n);
+  const network = new ethers.Network("hyperliquid", 999n);
   return new ethers.JsonRpcProvider(rpcUrl, network, { staticNetwork: network });
 }
 
@@ -98,15 +99,24 @@ export interface UnsignedTxResult {
   populated: ethers.TransactionRequest;
   unsignedBytes: Uint8Array;
   digest: string;
+  /** The nonce used in this transaction (useful for chaining sequential txs). */
+  nonce: number;
 }
 
 async function buildSingleUnsignedTx(
   provider: ethers.JsonRpcProvider,
   from: string,
   txReq: ethers.TransactionRequest,
+  nonceOverride?: number,
+  gasLimitFallback?: bigint,
 ): Promise<UnsignedTxResult> {
-  const nonce = await provider.getTransactionCount(from);
-  const fee = await provider.getFeeData();
+  // Use explicit nonce when provided (avoids stale-nonce from load-balanced RPCs).
+  // Fall back to "pending" tag so unconfirmed txs are also counted.
+  const nonce = nonceOverride ?? await provider.getTransactionCount(from, "pending");
+  // Use eth_gasPrice directly — Hyperliquid's RPC doesn't reliably support
+  // eth_getBlockByNumber("latest") which getFeeData() calls internally.
+  const gasPriceHex: string = await provider.send("eth_gasPrice", []);
+  const gasPrice = BigInt(gasPriceHex);
   const net = await provider.getNetwork();
 
   const base: any = {
@@ -114,23 +124,66 @@ async function buildSingleUnsignedTx(
     nonce,
     chainId: net.chainId,
     type: 2,
-    maxFeePerGas: fee.maxFeePerGas ?? undefined,
-    maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? undefined,
+    maxFeePerGas: gasPrice,
+    maxPriorityFeePerGas: gasPrice,
   };
 
-  const gasLimit = await provider.estimateGas(base);
-  const populated = { ...base, gasLimit };
+  // estimateGas can fail on load-balanced RPCs when a prior tx (e.g. approve)
+  // hasn't propagated to the node handling this call.  Retry up to 3 times
+  // with a short delay, then fall back to a generous static gas limit.
+  let gasLimit: bigint;
+  let lastEstimateErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      gasLimit = await provider.estimateGas(base);
+      lastEstimateErr = undefined;
+      break;
+    } catch (err) {
+      lastEstimateErr = err;
+      console.warn(`[estimateGas] attempt ${attempt + 1}/3 failed:`, err);
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
+  }
+  if (lastEstimateErr) {
+    // Use fallback or generous default so the tx can still be built & signed
+    gasLimit = gasLimitFallback ?? 150_000n;
+    console.warn(`[estimateGas] All retries failed. Using fallback gasLimit: ${gasLimit}`);
+  }
+
+  const populated = { ...base, gasLimit: gasLimit! };
 
   const { from: _f, ...txData } = populated; // eslint-disable-line @typescript-eslint/no-unused-vars
   const tx = ethers.Transaction.from(txData);
   const unsignedBytes = ethers.getBytes(tx.unsignedSerialized);
 
-  return { populated, unsignedBytes, digest: ethers.keccak256(unsignedBytes) };
+  return { populated, unsignedBytes, digest: ethers.keccak256(unsignedBytes), nonce };
 }
 
 /* ================================================================
    PUBLIC TX BUILDERS
    ================================================================ */
+
+/**
+ * Check current USDC allowance for CORE_DEPOSIT_WALLET.
+ */
+export async function checkUsdcAllowance(
+  provider: ethers.JsonRpcProvider,
+  owner: string,
+): Promise<bigint> {
+  const usdc = new ethers.Contract(USDC, usdcAbi, provider);
+  return usdc.allowance(owner, CORE_DEPOSIT_WALLET);
+}
+
+/**
+ * Check on-chain USDC balance for the given address.
+ */
+export async function checkUsdcBalance(
+  provider: ethers.JsonRpcProvider,
+  owner: string,
+): Promise<bigint> {
+  const usdc = new ethers.Contract(USDC, usdcAbi, provider);
+  return usdc.balanceOf(owner);
+}
 
 /**
  * Build unsigned USDC approve transaction.
@@ -140,6 +193,7 @@ export async function buildUnsignedApprove(
   provider: ethers.JsonRpcProvider,
   from: string,
   amount: bigint,
+  nonceOverride?: number,
 ): Promise<UnsignedTxResult> {
   const usdcIface = new ethers.Interface(usdcAbi);
   const data = usdcIface.encodeFunctionData("approve", [
@@ -152,7 +206,7 @@ export async function buildUnsignedApprove(
     to: USDC,
     data,
     value: 0n,
-  });
+  }, nonceOverride);
 }
 
 /**
@@ -164,6 +218,7 @@ export async function buildUnsignedDeposit(
   from: string,
   amount: bigint,
   destinationDex: number = 0,
+  nonceOverride?: number,
 ): Promise<UnsignedTxResult> {
   const depositIface = new ethers.Interface(coreDepositAbi);
   const data = depositIface.encodeFunctionData("deposit", [
@@ -171,12 +226,15 @@ export async function buildUnsignedDeposit(
     destinationDex,
   ]);
 
+  // 150k is a safe upper bound for CoreDepositWallet.deposit() (~111k typical).
+  // Passing a fallback prevents build failure when estimateGas can't see the
+  // approve tx on a load-balanced RPC.
   return buildSingleUnsignedTx(provider, from, {
     from,
     to: CORE_DEPOSIT_WALLET,
     data,
     value: 0n,
-  });
+  }, nonceOverride, 150_000n);
 }
 
 /**
@@ -187,7 +245,7 @@ export async function buildUnsignedDeposit(
  * @param limitPx   Limit price as decimal string (e.g. "73000" or "73000.50")
  * @param sz        Size as decimal string (e.g. "0.0001")
  * @param reduceOnly  Whether this is a reduce-only order
- * @param tif       Time in force: 1=ALO, 2=IOC, 3=GTC
+ * @param tif       Time in force: 1=ALO, 2=GTC, 3=IOC
  * @param cloid     Client order ID (optional)
  */
 export async function buildUnsignedPlaceOrder(
@@ -198,8 +256,9 @@ export async function buildUnsignedPlaceOrder(
   limitPx: string,
   sz: string,
   reduceOnly: boolean = false,
-  tif: number = 3,
+  tif: number = 2,
   cloid: bigint = 0n,
+  nonceOverride?: number,
 ): Promise<UnsignedTxResult> {
   const ACTION_ID_LIMIT_ORDER = 1;
   const limitPxScaled = parseFixed8(limitPx);
@@ -220,7 +279,7 @@ export async function buildUnsignedPlaceOrder(
     to: CORE_WRITER,
     data,
     value: 0n,
-  });
+  }, nonceOverride);
 }
 
 /* ================================================================
@@ -389,7 +448,7 @@ export async function getEvmBalances(
  */
 export async function getHypercoreBalance(
   address: string,
-  isTestnet = true,
+  isTestnet = false,
 ): Promise<{ accountValue: string; withdrawable: string; marginUsed: string }> {
   const baseUrl = isTestnet
     ? "https://api.hyperliquid-testnet.xyz"
@@ -400,7 +459,7 @@ export async function getHypercoreBalance(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       type: "clearinghouseState",
-      user: address,
+      user: address.toLowerCase(),
     }),
   });
 
@@ -428,11 +487,38 @@ export async function getHypercoreBalance(
 }
 
 /**
+ * Check whether an address has an existing account on the Hyperliquid L1.
+ * The HyperEVM → HyperCore bridge requires the L1 account to exist before
+ * deposits can be credited.  Returns true if the account has any history.
+ */
+export async function checkL1AccountExists(
+  address: string,
+  isTestnet = false,
+): Promise<boolean> {
+  const baseUrl = isTestnet
+    ? "https://api.hyperliquid-testnet.xyz"
+    : "https://api.hyperliquid.xyz";
+
+  const res = await fetch(`${baseUrl}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "userNonFundingLedgerUpdates",
+      user: address.toLowerCase(),
+    }),
+  });
+
+  if (!res.ok) return false;
+  const data = await res.json();
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
  * Fetch the spot account balance from the Hyperliquid info API.
  */
 export async function getSpotBalance(
   address: string,
-  isTestnet = true,
+  isTestnet = false,
 ): Promise<{ totalUsdValue: string; balances: { coin: string; hold: string; total: string }[] }> {
   const baseUrl = isTestnet
     ? "https://api.hyperliquid-testnet.xyz"
@@ -472,4 +558,25 @@ export async function getSpotBalance(
     totalUsdValue: totalUsdValue.toFixed(2),
     balances,
   };
+}
+
+/**
+ * Fetch real-time mid-market prices for all assets from the Hyperliquid info API.
+ * Returns a map like { "BTC": "94532.0", "ETH": "2548.5", ... }.
+ */
+export async function fetchAllMids(
+  isTestnet = false,
+): Promise<Record<string, string>> {
+  const baseUrl = isTestnet
+    ? "https://api.hyperliquid-testnet.xyz"
+    : "https://api.hyperliquid.xyz";
+
+  const res = await fetch(`${baseUrl}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "allMids" }),
+  });
+
+  if (!res.ok) throw new Error(`Failed to fetch mid prices: ${res.status}`);
+  return res.json();
 }
