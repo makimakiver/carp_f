@@ -560,6 +560,148 @@ export async function getSpotBalance(
   };
 }
 
+/* ================================================================
+   USER POSITIONS, ORDERS & FILLS
+   ================================================================ */
+
+export interface HlPosition {
+  coin: string;
+  side: "Long" | "Short";
+  size: string;
+  leverage: string;
+  entryPx: string;
+  markPx: string;
+  liquidationPx: string | null;
+  unrealizedPnl: string;
+  returnOnEquity: string;
+  profitable: boolean;
+}
+
+/**
+ * Fetch open perps positions from the clearinghouseState API.
+ */
+export async function getUserPositions(
+  address: string,
+  isTestnet = true,
+): Promise<HlPosition[]> {
+  const baseUrl = isTestnet
+    ? "https://api.hyperliquid-testnet.xyz"
+    : "https://api.hyperliquid.xyz";
+
+  const res = await fetch(`${baseUrl}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "clearinghouseState", user: address.toLowerCase() }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  return (data?.assetPositions ?? []).map((ap: any) => {
+    const p = ap.position;
+    const szi = parseFloat(p.szi ?? "0");
+    const entryPx = parseFloat(p.entryPx ?? "0");
+    const markPx = parseFloat(ap.position?.markPx ?? p.entryPx ?? "0");
+    const unrealizedPnl = parseFloat(p.unrealizedPnl ?? "0");
+    const returnOnEquity = parseFloat(p.returnOnEquity ?? "0");
+    const leverage = p.leverage?.value ?? "1";
+
+    return {
+      coin: p.coin ?? "?",
+      side: szi >= 0 ? "Long" as const : "Short" as const,
+      size: Math.abs(szi).toString(),
+      leverage: `${leverage}x`,
+      entryPx: entryPx.toFixed(2),
+      markPx: markPx.toFixed(2),
+      liquidationPx: p.liquidationPx ? parseFloat(p.liquidationPx).toFixed(2) : null,
+      unrealizedPnl: unrealizedPnl.toFixed(2),
+      returnOnEquity: (returnOnEquity * 100).toFixed(2),
+      profitable: unrealizedPnl >= 0,
+    };
+  });
+}
+
+export interface HlOpenOrder {
+  coin: string;
+  side: "Buy" | "Sell";
+  limitPx: string;
+  sz: string;
+  orderType: string;
+  timestamp: number;
+  oid: number;
+}
+
+/**
+ * Fetch open orders for a user.
+ */
+export async function getUserOpenOrders(
+  address: string,
+  isTestnet = true,
+): Promise<HlOpenOrder[]> {
+  const baseUrl = isTestnet
+    ? "https://api.hyperliquid-testnet.xyz"
+    : "https://api.hyperliquid.xyz";
+
+  const res = await fetch(`${baseUrl}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "openOrders", user: address.toLowerCase() }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  return (data ?? []).map((o: any) => ({
+    coin: o.coin ?? "?",
+    side: o.side === "B" ? "Buy" as const : "Sell" as const,
+    limitPx: o.limitPx ?? "0",
+    sz: o.sz ?? "0",
+    orderType: o.orderType ?? "Limit",
+    timestamp: o.timestamp ?? 0,
+    oid: o.oid ?? 0,
+  }));
+}
+
+export interface HlFill {
+  coin: string;
+  side: "Buy" | "Sell";
+  px: string;
+  sz: string;
+  fee: string;
+  time: number;
+  hash: string;
+  crossed: boolean;
+}
+
+/**
+ * Fetch recent trade fills (history) for a user.
+ */
+export async function getUserFills(
+  address: string,
+  isTestnet = true,
+): Promise<HlFill[]> {
+  const baseUrl = isTestnet
+    ? "https://api.hyperliquid-testnet.xyz"
+    : "https://api.hyperliquid.xyz";
+
+  const res = await fetch(`${baseUrl}/info`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "userFills", user: address.toLowerCase() }),
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+
+  return (data ?? []).map((f: any) => ({
+    coin: f.coin ?? "?",
+    side: f.side === "B" ? "Buy" as const : "Sell" as const,
+    px: f.px ?? "0",
+    sz: f.sz ?? "0",
+    fee: f.fee ?? "0",
+    time: f.time ?? 0,
+    hash: f.hash ?? "",
+    crossed: f.crossed ?? false,
+  }));
+}
+
 /**
  * Fetch real-time mid-market prices for all assets from the Hyperliquid info API.
  * Returns a map like { "BTC": "94532.0", "ETH": "2548.5", ... }.

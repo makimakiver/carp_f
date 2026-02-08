@@ -54,6 +54,12 @@ import {
   ASSET_INDEX,
   USDC_ADDRESS,
   fetchAllMids,
+  getUserPositions,
+  getUserOpenOrders,
+  getUserFills,
+  type HlPosition,
+  type HlOpenOrder,
+  type HlFill,
 } from "@/lib/hyperliquid";
 import { ethers } from "ethers";
 
@@ -97,28 +103,7 @@ const MARKETS = [
   { symbol: "ARB-PERP", tv: "BINANCE:ARBUSDT", price: "1.24", change: "-0.83%", positive: false },
 ];
 
-const POSITIONS = [
-  {
-    symbol: "BTC-PERP", side: "Long", size: "0.5200", leverage: "10x",
-    entry: "42,180.00", mark: "43,271.50", liq: "38,420.00",
-    pnl: "+568.38", pnlPercent: "+2.59%", profitable: true,
-  },
-  {
-    symbol: "ETH-PERP", side: "Short", size: "4.2000", leverage: "5x",
-    entry: "2,310.50", mark: "2,284.67", liq: "2,580.00",
-    pnl: "+108.49", pnlPercent: "+1.12%", profitable: true,
-  },
-  {
-    symbol: "SOL-PERP", side: "Long", size: "120.00", leverage: "20x",
-    entry: "100.20", mark: "98.42", liq: "95.30",
-    pnl: "-213.60", pnlPercent: "-1.78%", profitable: false,
-  },
-];
-
-const OPEN_ORDERS = [
-  { symbol: "BTC-PERP", type: "Limit", side: "Buy", price: "42,500.00", size: "0.2500", filled: "0%", time: "12:34:21" },
-  { symbol: "ETH-PERP", type: "Limit", side: "Sell", price: "2,400.00", size: "2.0000", filled: "0%", time: "11:02:45" },
-];
+// Mock data removed — positions, orders, and history are now fetched live from Hyperliquid.
 
 function stripCommas(s: string): string {
   return s.replace(/,/g, "");
@@ -174,9 +159,10 @@ function OrderBook() {
 interface OrderEntryProps {
   selectedMarket: typeof MARKETS[0];
   livePrice: string | null;
+  onEvmAddressChange?: (addr: string) => void;
 }
 
-function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
+function OrderEntry({ selectedMarket, livePrice, onEvmAddressChange }: OrderEntryProps) {
   const account = useCurrentAccount();
   const dAppKit = useDAppKit();
 
@@ -239,6 +225,7 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
 
   // Order submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingSide, setSubmittingSide] = useState<"buy" | "sell" | null>(null);
   const [orderStatus, setOrderStatus] = useState("");
   const [orderError, setOrderError] = useState("");
   const [orderSuccess, setOrderSuccess] = useState("");
@@ -346,6 +333,11 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
     return () => { cancelled = true; };
   }, [selectedWallet, hlRpcUrl]);
 
+  // Notify parent when evmAddress changes
+  useEffect(() => {
+    onEvmAddressChange?.(evmAddress);
+  }, [evmAddress, onEvmAddressChange]);
+
   // Auto-refresh balances every 30s when an EVM address is known
   useEffect(() => {
     if (!evmAddress) return;
@@ -414,6 +406,7 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
     }
 
     setIsSubmitting(true);
+    setSubmittingSide(isBuy ? "buy" : "sell");
     setOrderStatus("");
     setOrderError("");
     setOrderSuccess("");
@@ -488,6 +481,7 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
       setOrderError(err?.message || "Order placement failed");
     } finally {
       setIsSubmitting(false);
+      setSubmittingSide(null);
       setOrderStatus("");
     }
   }
@@ -1371,6 +1365,17 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
         </div>
       )}
 
+      {/* ── Disabled reason hint ── */}
+      {!isUnlocked && selectedWallet && (
+        <div className="text-[10px] text-amber-400/80 text-center">Unlock your dWallet to trade</div>
+      )}
+      {isUnlocked && availablePresigns.length === 0 && (
+        <div className="text-[10px] text-amber-400/80 text-center">No presign caps available — create more from the Portfolio page</div>
+      )}
+      {isUnlocked && availablePresigns.length > 0 && !size && (
+        <div className="text-[10px] text-zinc-500 text-center">Enter a size to place an order</div>
+      )}
+
       {/* ── Buy / Sell ── */}
       <div className="grid grid-cols-2 gap-2.5 pt-1">
         <button
@@ -1378,7 +1383,7 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
           disabled={!isUnlocked || isSubmitting || !size || (orderType === "limit" ? !price : !livePrice) || availablePresigns.length === 0}
           className="h-11 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] tracking-wide transition-colors flex items-center justify-center gap-2"
         >
-          {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : null}
+          {submittingSide === "buy" ? <Loader2 size={14} className="animate-spin" /> : null}
           Buy / Long
         </button>
         <button
@@ -1386,7 +1391,7 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
           disabled={!isUnlocked || isSubmitting || !size || (orderType === "limit" ? !price : !livePrice) || availablePresigns.length === 0}
           className="h-11 rounded-lg bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-[13px] tracking-wide transition-colors flex items-center justify-center gap-2"
         >
-          {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : null}
+          {submittingSide === "sell" ? <Loader2 size={14} className="animate-spin" /> : null}
           Sell / Short
         </button>
       </div>
@@ -1400,19 +1405,61 @@ function OrderEntry({ selectedMarket, livePrice }: OrderEntryProps) {
 }
 
 /* ================================================================
-   POSITIONS TABLE
+   POSITIONS TABLE (live data from Hyperliquid)
    ================================================================ */
 
-function PositionsPanel() {
+function PositionsPanel({ evmAddress }: { evmAddress: string | null }) {
   const [tab, setTab] = useState<"positions" | "orders" | "history">("positions");
+  const [positions, setPositions] = useState<HlPosition[]>([]);
+  const [openOrders, setOpenOrders] = useState<HlOpenOrder[]>([]);
+  const [fills, setFills] = useState<HlFill[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch data when evmAddress changes or tab is selected
+  useEffect(() => {
+    if (!evmAddress) {
+      setPositions([]);
+      setOpenOrders([]);
+      setFills([]);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [pos, orders, history] = await Promise.all([
+          getUserPositions(evmAddress),
+          getUserOpenOrders(evmAddress),
+          getUserFills(evmAddress),
+        ]);
+        if (!cancelled) {
+          setPositions(pos);
+          setOpenOrders(orders);
+          setFills(history);
+        }
+      } catch { /* non-critical */ }
+      if (!cancelled) setLoading(false);
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 15_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [evmAddress]);
+
+  const formatTime = (ts: number) => {
+    if (!ts) return "--";
+    const d = new Date(ts);
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  };
 
   return (
     <>
       <div className="flex items-center gap-0 border-b border-zinc-800/50 px-2">
         {[
-          { key: "positions" as const, label: `Positions (${POSITIONS.length})` },
-          { key: "orders" as const, label: `Open Orders (${OPEN_ORDERS.length})` },
-          { key: "history" as const, label: "History" },
+          { key: "positions" as const, label: `Positions (${positions.length})` },
+          { key: "orders" as const, label: `Open Orders (${openOrders.length})` },
+          { key: "history" as const, label: `History (${fills.length})` },
         ].map((t) => (
           <button
             key={t.key}
@@ -1426,75 +1473,115 @@ function PositionsPanel() {
             {t.label}
           </button>
         ))}
+        {loading && <Loader2 size={12} className="animate-spin text-zinc-500 ml-2" />}
       </div>
 
       <div className="overflow-x-auto">
         {tab === "positions" && (
-          <table className="w-full text-[11px] font-mono">
-            <thead>
-              <tr className="text-zinc-500 text-left">
-                <th className="pl-4 py-2.5 font-medium">Symbol</th>
-                <th className="py-2.5 font-medium">Side</th>
-                <th className="py-2.5 font-medium">Size</th>
-                <th className="py-2.5 font-medium">Leverage</th>
-                <th className="py-2.5 font-medium">Entry</th>
-                <th className="py-2.5 font-medium">Mark</th>
-                <th className="py-2.5 font-medium">Liq. Price</th>
-                <th className="py-2.5 font-medium text-right pr-4">PnL (ROE%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {POSITIONS.map((pos) => (
-                <tr key={pos.symbol + pos.side} className="border-t border-zinc-800/30 hover:bg-zinc-800/20">
-                  <td className="pl-4 py-3 text-zinc-100 font-semibold">{pos.symbol}</td>
-                  <td className={pos.side === "Long" ? "text-emerald-400" : "text-rose-400"}>{pos.side}</td>
-                  <td className="text-zinc-300">{pos.size}</td>
-                  <td className="text-zinc-400">{pos.leverage}</td>
-                  <td className="text-zinc-300">{pos.entry}</td>
-                  <td className="text-zinc-300">{pos.mark}</td>
-                  <td className="text-zinc-500">{pos.liq}</td>
-                  <td className={`text-right pr-4 font-semibold ${pos.profitable ? "text-emerald-400" : "text-rose-400"}`}>
-                    {pos.pnl} <span className="text-zinc-500">({pos.pnlPercent})</span>
-                  </td>
+          positions.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-zinc-600 text-[12px]">
+              {evmAddress ? "No open positions" : "Connect and select a dWallet to view positions"}
+            </div>
+          ) : (
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="text-zinc-500 text-left">
+                  <th className="pl-4 py-2.5 font-medium">Symbol</th>
+                  <th className="py-2.5 font-medium">Side</th>
+                  <th className="py-2.5 font-medium">Size</th>
+                  <th className="py-2.5 font-medium">Leverage</th>
+                  <th className="py-2.5 font-medium">Entry</th>
+                  <th className="py-2.5 font-medium">Mark</th>
+                  <th className="py-2.5 font-medium">Liq. Price</th>
+                  <th className="py-2.5 font-medium text-right pr-4">PnL (ROE%)</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {positions.map((pos) => (
+                  <tr key={pos.coin + pos.side} className="border-t border-zinc-800/30 hover:bg-zinc-800/20">
+                    <td className="pl-4 py-3 text-zinc-100 font-semibold">{pos.coin}-PERP</td>
+                    <td className={pos.side === "Long" ? "text-emerald-400" : "text-rose-400"}>{pos.side}</td>
+                    <td className="text-zinc-300">{pos.size}</td>
+                    <td className="text-zinc-400">{pos.leverage}</td>
+                    <td className="text-zinc-300">{parseFloat(pos.entryPx).toLocaleString()}</td>
+                    <td className="text-zinc-300">{parseFloat(pos.markPx).toLocaleString()}</td>
+                    <td className="text-zinc-500">{pos.liquidationPx ? parseFloat(pos.liquidationPx).toLocaleString() : "--"}</td>
+                    <td className={`text-right pr-4 font-semibold ${pos.profitable ? "text-emerald-400" : "text-rose-400"}`}>
+                      {pos.profitable ? "+" : ""}{pos.unrealizedPnl} <span className="text-zinc-500">({pos.profitable ? "+" : ""}{pos.returnOnEquity}%)</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         )}
 
         {tab === "orders" && (
-          <table className="w-full text-[11px] font-mono">
-            <thead>
-              <tr className="text-zinc-500 text-left">
-                <th className="pl-4 py-2.5 font-medium">Symbol</th>
-                <th className="py-2.5 font-medium">Type</th>
-                <th className="py-2.5 font-medium">Side</th>
-                <th className="py-2.5 font-medium">Price</th>
-                <th className="py-2.5 font-medium">Size</th>
-                <th className="py-2.5 font-medium">Filled</th>
-                <th className="py-2.5 font-medium text-right pr-4">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {OPEN_ORDERS.map((order, i) => (
-                <tr key={i} className="border-t border-zinc-800/30 hover:bg-zinc-800/20">
-                  <td className="pl-4 py-3 text-zinc-100 font-semibold">{order.symbol}</td>
-                  <td className="text-zinc-400">{order.type}</td>
-                  <td className={order.side === "Buy" ? "text-emerald-400" : "text-rose-400"}>{order.side}</td>
-                  <td className="text-zinc-300">{order.price}</td>
-                  <td className="text-zinc-300">{order.size}</td>
-                  <td className="text-zinc-500">{order.filled}</td>
-                  <td className="text-zinc-500 text-right pr-4">{order.time}</td>
+          openOrders.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-zinc-600 text-[12px]">
+              {evmAddress ? "No open orders" : "Connect and select a dWallet to view orders"}
+            </div>
+          ) : (
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="text-zinc-500 text-left">
+                  <th className="pl-4 py-2.5 font-medium">Symbol</th>
+                  <th className="py-2.5 font-medium">Type</th>
+                  <th className="py-2.5 font-medium">Side</th>
+                  <th className="py-2.5 font-medium">Price</th>
+                  <th className="py-2.5 font-medium">Size</th>
+                  <th className="py-2.5 font-medium text-right pr-4">Time</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {openOrders.map((order) => (
+                  <tr key={order.oid} className="border-t border-zinc-800/30 hover:bg-zinc-800/20">
+                    <td className="pl-4 py-3 text-zinc-100 font-semibold">{order.coin}-PERP</td>
+                    <td className="text-zinc-400">{order.orderType}</td>
+                    <td className={order.side === "Buy" ? "text-emerald-400" : "text-rose-400"}>{order.side}</td>
+                    <td className="text-zinc-300">{parseFloat(order.limitPx).toLocaleString()}</td>
+                    <td className="text-zinc-300">{order.sz}</td>
+                    <td className="text-zinc-500 text-right pr-4">{formatTime(order.timestamp)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         )}
 
         {tab === "history" && (
-          <div className="flex items-center justify-center py-12 text-zinc-600 text-[12px]">
-            No recent trade history
-          </div>
+          fills.length === 0 ? (
+            <div className="flex items-center justify-center py-12 text-zinc-600 text-[12px]">
+              {evmAddress ? "No recent trade history" : "Connect and select a dWallet to view history"}
+            </div>
+          ) : (
+            <table className="w-full text-[11px] font-mono">
+              <thead>
+                <tr className="text-zinc-500 text-left">
+                  <th className="pl-4 py-2.5 font-medium">Symbol</th>
+                  <th className="py-2.5 font-medium">Side</th>
+                  <th className="py-2.5 font-medium">Price</th>
+                  <th className="py-2.5 font-medium">Size</th>
+                  <th className="py-2.5 font-medium">Fee</th>
+                  <th className="py-2.5 font-medium">Type</th>
+                  <th className="py-2.5 font-medium text-right pr-4">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fills.map((fill, i) => (
+                  <tr key={fill.hash || i} className="border-t border-zinc-800/30 hover:bg-zinc-800/20">
+                    <td className="pl-4 py-3 text-zinc-100 font-semibold">{fill.coin}-PERP</td>
+                    <td className={fill.side === "Buy" ? "text-emerald-400" : "text-rose-400"}>{fill.side}</td>
+                    <td className="text-zinc-300">{parseFloat(fill.px).toLocaleString()}</td>
+                    <td className="text-zinc-300">{fill.sz}</td>
+                    <td className="text-zinc-500">{fill.fee}</td>
+                    <td className="text-zinc-400">{fill.crossed ? "Taker" : "Maker"}</td>
+                    <td className="text-zinc-500 text-right pr-4">{formatTime(fill.time)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
         )}
       </div>
     </>
@@ -1509,6 +1596,7 @@ export default function TradePageContent() {
   const [selectedMarket, setSelectedMarket] = useState(MARKETS[0]!);
   const [marketDropdown, setMarketDropdown] = useState(false);
   const [livePrices, setLivePrices] = useState<Record<string, string>>({});
+  const [sharedEvmAddress, setSharedEvmAddress] = useState<string | null>(null);
 
   // Poll live mid-market prices every 3 seconds
   useEffect(() => {
@@ -1629,12 +1717,12 @@ export default function TradePageContent() {
           <div className="lg:w-[25%] min-w-[300px]">
             <div className="bg-zinc-900/50 border border-zinc-700/40 rounded-2xl p-5 shadow-lg sticky top-20">
               <h2 className="text-[14px] font-semibold text-zinc-200 mb-4">Place Order</h2>
-              <OrderEntry selectedMarket={selectedMarket} livePrice={currentPrice} />
+              <OrderEntry selectedMarket={selectedMarket} livePrice={currentPrice} onEvmAddressChange={(a) => setSharedEvmAddress(a || null)} />
             </div>
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-700/40 rounded-2xl overflow-hidden shadow-lg">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-lg">
           <PositionsPanel />
         </div>
       </main>
