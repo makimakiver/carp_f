@@ -1536,7 +1536,7 @@ export default function TradePageContent() {
           <div className="lg:w-[25%] min-w-[300px]">
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-lg sticky top-20">
               <h2 className="text-[14px] font-semibold text-zinc-200 mb-4">Place Order</h2>
-              <OrderEntry selectedMarket={selectedMarket} />
+              <OrderEntry selectedMarket={selectedMarket} livePrice={currentPrice} />
             </div>
           </div>
         </div>
