@@ -565,7 +565,7 @@ export default function PortfolioPage() {
             <ArrowLeft size={16} />
           </Link>
           <Link href="/" className="text-base font-bold tracking-wider text-zinc-100 mr-2">
-            NEXUS
+            CARP
           </Link>
 
           {/* ── Trade / Portfolio Tab ── */}

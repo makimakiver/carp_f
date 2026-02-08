@@ -1,62 +1,44 @@
 {
   "../node_modules/@ika.xyz/sdk/dist/esm/client/wasm-loader.js -> @ika.xyz/ika-wasm": {
-    "id": 43353,
+    "id": "../node_modules/@ika.xyz/sdk/dist/esm/client/wasm-loader.js -> @ika.xyz/ika-wasm",
     "files": [
-      "static/chunks/353.349b08fdb5b16589.js"
+      "static/chunks/_app-pages-browser_node_modules_ika_xyz_ika-wasm_dist_web_dwallet_mpc_wasm_js.js"
     ]
   },
   "app/DAppKitClientProvider.tsx -> ./dapp-kit": {
-    "id": 20277,
+    "id": "app/DAppKitClientProvider.tsx -> ./dapp-kit",
     "files": [
-      "static/chunks/06f0e697.ae815b165373e8dd.js",
-      "static/chunks/826.af95c56ee9a03e1b.js",
-      "static/chunks/656.bcbd78a2d08cd193.js",
-      "static/chunks/277.3ea5960ffe7f3252.js"
+      "static/chunks/_app-pages-browser_src_app_dapp-kit_ts.js"
     ]
   },
   "app/DAppKitClientProvider.tsx -> @mysten/dapp-kit-react": {
-    "id": 36826,
+    "id": "app/DAppKitClientProvider.tsx -> @mysten/dapp-kit-react",
     "files": [
-      "static/chunks/06f0e697.ae815b165373e8dd.js",
-      "static/chunks/826.af95c56ee9a03e1b.js",
-      "static/chunks/257.990da16794a31292.js"
+      "static/chunks/_app-pages-browser_node_modules_mysten_dapp-kit-react_dist_index_mjs.js"
     ]
   },
   "app/portfolio/page.tsx -> @/components/ConnectWalletButton": {
-    "id": 37945,
+    "id": "app/portfolio/page.tsx -> @/components/ConnectWalletButton",
     "files": [
-      "static/chunks/06f0e697.ae815b165373e8dd.js",
-      "static/chunks/826.af95c56ee9a03e1b.js",
-      "static/chunks/945.60042395af8a411c.js"
+      "static/chunks/_app-pages-browser_src_components_ConnectWalletButton_tsx-_10ba0.js"
     ]
   },
   "app/portfolio/page.tsx -> @/components/OnChainPortfolio": {
-    "id": 81113,
+    "id": "app/portfolio/page.tsx -> @/components/OnChainPortfolio",
     "files": [
-      "static/chunks/06f0e697.ae815b165373e8dd.js",
-      "static/chunks/826.af95c56ee9a03e1b.js",
-      "static/chunks/658-ec164126e0d72ca8.js",
-      "static/chunks/434.754280264728985a.js",
-      "static/chunks/113.4317d2d770f49096.js"
+      "static/chunks/_app-pages-browser_src_components_OnChainPortfolio_tsx.js"
     ]
   },
   "app/trade/page.tsx -> @/components/TradePageContent": {
-    "id": 3005,
+    "id": "app/trade/page.tsx -> @/components/TradePageContent",
     "files": [
-      "static/chunks/06f0e697.ae815b165373e8dd.js",
-      "static/chunks/826.af95c56ee9a03e1b.js",
-      "static/chunks/658-ec164126e0d72ca8.js",
-      "static/chunks/50-3c37d34ffa8c5530.js",
-      "static/chunks/434.754280264728985a.js",
-      "static/chunks/213.23c43ff58c550fb0.js",
-      "static/chunks/113.4317d2d770f49096.js",
-      "static/chunks/5.6cda6b37642652ed.js"
+      "static/chunks/_app-pages-browser_src_components_TradePageContent_tsx.js"
     ]
   },
   "components/TradePageContent.tsx -> @/components/ConnectWalletButton": {
-    "id": 37945,
+    "id": "components/TradePageContent.tsx -> @/components/ConnectWalletButton",
     "files": [
-      "static/chunks/598.1ebe4d8c49243cd5.js"
+      "static/chunks/_app-pages-browser_src_components_ConnectWalletButton_tsx-_10ba1.js"
     ]
   }
 }

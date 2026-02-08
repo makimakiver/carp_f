@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowRight,
   Zap,
@@ -44,11 +45,9 @@ function Navbar() {
       <div className="relative mx-auto max-w-[1400px] px-6 h-16 flex items-center justify-between backdrop-blur-xl bg-[#020408]/70">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center">
-            <Zap size={14} className="text-white" />
-          </div>
+          <Image src="/logo.png" alt="CARP" width={150} height={150} className="rounded-lg" />
           <span className="text-[15px] font-semibold tracking-tight text-white">
-            NEXUS
+            CARP
           </span>
         </Link>
 
@@ -204,7 +203,7 @@ function BentoGrid() {
                 Smart Split Trading
               </h3>
               <p className="text-sm text-zinc-200 max-w-lg leading-relaxed">
-                One order, multiple markets. Nexus automatically splits your
+                One order, multiple markets. CARP automatically splits your
                 trade across venues to minimize slippage and maximize execution quality.
               </p>
             </div>
@@ -423,7 +422,7 @@ function CTASection() {
           custom={1}
           className="relative text-base sm:text-lg text-zinc-200 mb-8 max-w-md mx-auto"
         >
-          Connect your wallet. Pick a pair. Let Nexus handle the rest.
+          Connect your wallet. Pick a pair. Let CARP handle the rest.
         </motion.p>
         <motion.div variants={fadeUp} custom={2} className="relative">
           <Link
@@ -460,11 +459,9 @@ function Footer() {
         {/* Logo */}
         <div>
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="h-6 w-6 rounded-md bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center">
-              <Zap size={11} className="text-white" />
-            </div>
+            <Image src="/logo.png" alt="CARP" width={24} height={24} className="rounded-md" />
             <span className="text-[14px] font-semibold tracking-tight text-zinc-400">
-              NEXUS
+              CARP
             </span>
           </div>
           <p className="text-[13px] text-zinc-600 max-w-[240px] leading-relaxed">
@@ -500,7 +497,7 @@ function Footer() {
       <div className="border-t border-white/[0.04]">
         <div className="mx-auto max-w-[1200px] px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-[12px] text-zinc-600">
-            © 2026 Nexus. All rights reserved.
+            © 2026 CARP. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             {["Twitter", "Discord", "GitHub"].map((s) => (

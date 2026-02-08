@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunk_N_E=self.webpackChunk_N_E||[]).push([[277],{20277:function(t,e,n){n.r(e),n.d(e,{dAppKit:function(){return i}});var s=n(36826),r=n(25694);let u={testnet:"https://fullnode.testnet.sui.io:443"},i=(0,s.createDAppKit)({networks:["testnet"],createClient:t=>new r.r({network:t,baseUrl:u[t]})})}}]);

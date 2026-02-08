@@ -9,6 +9,7 @@ declare global {
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ChevronDown,
   Star,
@@ -1623,8 +1624,9 @@ export default function TradePageContent() {
           <Link href="/" className="flex items-center gap-2 text-zinc-400 hover:text-zinc-200 transition-colors mr-1">
             <ArrowLeft size={16} />
           </Link>
-          <Link href="/" className="text-base font-bold tracking-wider text-zinc-100 mr-2">
-            NEXUS
+          <Link href="/" className="flex items-center gap-2 text-base font-bold tracking-wider text-zinc-100 mr-2">
+            <Image src="/logo.png" alt="CARP" width={24} height={24} className="rounded-md" />
+            CARP
           </Link>
 
           <div className="flex items-center gap-0.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg p-1 mr-2">

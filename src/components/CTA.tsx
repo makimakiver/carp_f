@@ -26,7 +26,7 @@ export default function CTA() {
           <h2 className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tighter text-white mb-8 leading-none">
             Start Trading on
             <br />
-            <span className="text-[#00F0FF] neon-glow">Nexus Today</span>
+            <span className="text-[#00F0FF] neon-glow">CARP Today</span>
           </h2>
 
           <p className="text-lg md:text-xl text-neutral-400 mb-12 max-w-2xl mx-auto tracking-wide leading-relaxed">

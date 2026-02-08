@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { navLinks } from "@/lib/data";
 
@@ -15,11 +16,11 @@ export default function Navbar() {
         aria-label="Main navigation"
       >
         {/* Logo */}
-        <a
-          href="#"
-          className="text-2xl font-bold tracking-wider bg-gradient-to-r from-[#00F0FF] to-[#0066FF] bg-clip-text text-transparent"
-        >
-          NEXUS
+        <a href="#" className="flex items-center gap-2.5">
+          <Image src="/logo.png" alt="CARP" width={32} height={32} className="rounded-lg" />
+          <span className="text-2xl font-bold tracking-wider bg-gradient-to-r from-[#00F0FF] to-[#0066FF] bg-clip-text text-transparent">
+            CARP
+          </span>
         </a>
 
         {/* Desktop Nav Links */}

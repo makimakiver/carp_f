@@ -15,7 +15,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Nexus | High-Performance Decentralized Trading",
+  title: "CARP | High-Performance Decentralized Trading",
   description:
     "Experience institutional-grade perpetual futures on a fully decentralized exchange with zero gas fees and lightning-fast execution.",
 };
