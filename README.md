@@ -1,4 +1,4 @@
-**Important links: 
+##Important links: 
 
 Demo video: https://youtu.be/J9d1FgAEI2A
 
@@ -9,7 +9,7 @@ Ika testnet faucet: https://faucet.ika.xyz/
 Sui testnet faucet: https://faucet.sui.io/
 
 (you are recommended to open the positions on hyperliquid mainnet!!)
-```
+
 # CARP
 
 A unified decentralized trading terminal for perpetual futures across multiple markets. Trade from a single interface using dWallets (MPC-based distributed wallets) on the Sui blockchain with Hyperliquid as the execution layer.
